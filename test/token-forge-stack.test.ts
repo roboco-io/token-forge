@@ -49,3 +49,57 @@ describe('network', () => {
       .not.toContain('0.0.0.0/0');
   });
 });
+
+describe('storage and security', () => {
+  const template = makeTemplate();
+
+  test('weights bucket is retained on stack delete', () => {
+    template.hasResource('AWS::S3::Bucket', {
+      DeletionPolicy: 'Retain',
+      UpdateReplacePolicy: 'Retain',
+    });
+  });
+
+  test('API key secret is auto-generated without punctuation', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      GenerateSecretString: Match.objectLike({
+        ExcludePunctuation: true,
+        PasswordLength: 48,
+      }),
+    });
+  });
+
+  test('instance role has SSM core managed policy', () => {
+    template.hasResourceProperties('AWS::IAM::Role', {
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Principal: { Service: 'ec2.amazonaws.com' },
+          }),
+        ]),
+      }),
+      ManagedPolicyArns: Match.arrayWith([
+        Match.objectLike({
+          'Fn::Join': Match.arrayWith([
+            Match.arrayWith([Match.stringLikeRegexp('AmazonSSMManagedInstanceCore')]),
+          ]),
+        }),
+      ]),
+    });
+  });
+
+  test('instance role can read the secret and read/write the bucket', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(['secretsmanager:GetSecretValue']),
+          }),
+          Match.objectLike({
+            Action: Match.arrayWith(['s3:PutObject']),
+          }),
+        ]),
+      }),
+    });
+  });
+});
