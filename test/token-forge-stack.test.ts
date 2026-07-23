@@ -103,3 +103,42 @@ describe('storage and security', () => {
     });
   });
 });
+
+describe('compute', () => {
+  const template = makeTemplate();
+
+  test('launch template uses spot p5.48xlarge with IMDSv2', () => {
+    template.hasResourceProperties('AWS::EC2::LaunchTemplate', {
+      LaunchTemplateData: Match.objectLike({
+        InstanceType: 'p5.48xlarge',
+        InstanceMarketOptions: Match.objectLike({ MarketType: 'spot' }),
+        MetadataOptions: Match.objectLike({ HttpTokens: 'required' }),
+      }),
+    });
+  });
+
+  test('user data has substituted placeholders and vLLM flags', () => {
+    const lts = template.findResources('AWS::EC2::LaunchTemplate');
+    const userData = JSON.stringify(Object.values(lts)[0]);
+    expect(userData).not.toContain('__WEIGHTS_REPO__'); // 치환 완료
+    expect(userData).toContain('nota-ai/Solar-Open2-250B-Nota-INT4');
+    expect(userData).toContain('--tensor-parallel-size 8');
+    expect(userData).toContain('upstage/vllm-solar-open2:v0.22.0-solar-open2');
+  });
+
+  test('ASG is fixed min1/max1 with 20min ELB grace period', () => {
+    template.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', {
+      MinSize: '1',
+      MaxSize: '1',
+      HealthCheckType: 'ELB',
+      HealthCheckGracePeriod: 1200,
+    });
+  });
+
+  test('target group health-checks vLLM /health on 8000', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+      Port: 8000,
+      HealthCheckPath: '/health',
+    });
+  });
+});

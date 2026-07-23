@@ -4,6 +4,9 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
 import { Construct } from 'constructs';
 import { ResolvedProfile } from './model-profile';
 
@@ -72,12 +75,66 @@ export class TokenForgeStack extends cdk.Stack {
     apiKeySecret.grantRead(instanceRole);
     weightsBucket.grantReadWrite(instanceRole);
 
-    // 이후 태스크에서 사용 (Task 7에서 제거)
-    void alb;
-    void instanceSg;
-    void profile;
-    void weightsBucket;
-    void apiKeySecret;
-    void instanceRole;
+    // --- 컴퓨트: DLAMI(base GPU) + Spot Launch Template + ASG min1/max1 ---
+    const machineImage = ec2.MachineImage.fromSsmParameter(
+      '/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id',
+      { os: ec2.OperatingSystemType.LINUX },
+    );
+
+    const bootScript = fs
+      .readFileSync(path.join(__dirname, '..', 'assets', 'user-data', 'boot.sh'), 'utf8')
+      .replace(/__REGION__/g, this.region)
+      .replace(/__API_KEY_SECRET_ARN__/g, apiKeySecret.secretArn)
+      .replace(/__WEIGHTS_BUCKET__/g, weightsBucket.bucketName)
+      .replace(/__WEIGHTS_REPO__/g, profile.weightsRepo)
+      .replace(/__VLLM_IMAGE__/g, profile.vllmImage)
+      .replace(/__VLLM_FLAGS__/g, profile.vllmFlags)
+      .replace(/__MAX_MODEL_LEN__/g, String(profile.maxModelLen));
+
+    const launchTemplate = new ec2.LaunchTemplate(this, 'LaunchTemplate', {
+      instanceType: new ec2.InstanceType(profile.instanceType),
+      machineImage,
+      userData: ec2.UserData.custom(bootScript),
+      role: instanceRole,
+      securityGroup: instanceSg,
+      associatePublicIpAddress: true, // 퍼블릭 서브넷, NAT 없음
+      requireImdsv2: true,
+      spotOptions: {
+        interruptionBehavior: ec2.SpotInstanceInterruption.TERMINATE,
+      },
+      blockDevices: [{
+        deviceName: '/dev/sda1',
+        volume: ec2.BlockDeviceVolume.ebs(200, {
+          volumeType: ec2.EbsDeviceVolumeType.GP3,
+        }),
+      }],
+    });
+
+    const asg = new autoscaling.AutoScalingGroup(this, 'Asg', {
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      launchTemplate,
+      minCapacity: 1,
+      maxCapacity: 1, // 스코프: 오토스케일링 없음
+      healthChecks: autoscaling.HealthChecks.withAdditionalChecks({
+        gracePeriod: cdk.Duration.minutes(20), // 모델 로드 ~15분 + 여유
+        additionalTypes: [autoscaling.AdditionalHealthCheckType.ELB],
+      }),
+      groupMetrics: [autoscaling.GroupMetrics.all()], // Task 8 알람에 필요
+    });
+
+    const listener = alb.addListener('Http', { port: 80, open: true });
+    listener.addTargets('Vllm', {
+      port: 8000,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targets: [asg],
+      healthCheck: {
+        path: '/health', // vLLM은 --api-key 사용 시에도 /health는 무인증
+        interval: cdk.Duration.seconds(30),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 5,
+      },
+      deregistrationDelay: cdk.Duration.seconds(30),
+    });
   }
 }
