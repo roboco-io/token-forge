@@ -5,7 +5,8 @@ vllmImage: vllm/vllm-openai:latest
 profiles:
   bf16:
     weightsRepo: Qwen/Qwen2.5-0.5B-Instruct
-    instanceType: g6e.xlarge
+    # 다중 후보: capacity-optimized가 용량 있는 스팟 풀 선택 (0.5B는 셋 다 여유)
+    instanceType: g6e.xlarge,g6.xlarge,g5.xlarge
     vllmFlags: >-
       --gpu-memory-utilization 0.90
     maxModelLen: 8192

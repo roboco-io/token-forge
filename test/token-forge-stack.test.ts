@@ -233,3 +233,22 @@ describe('az filter context', () => {
     expect(zoneIds).toHaveLength(1);
   });
 });
+
+describe('multi instance type', () => {
+  test('comma-separated instanceType becomes multiple LT overrides', () => {
+    const app = new cdk.App();
+    const resolvedProfile = loadModelProfile(
+      path.join(__dirname, '..', 'models'), 'qwen2.5-0.5b', 'bf16',
+    );
+    const stack = new TokenForgeStack(app, 'MultiTypeTest', {
+      resolvedProfile,
+      env: { account: '111111111111', region: 'us-east-1' },
+    });
+    const template = Template.fromStack(stack);
+    const asgs = template.findResources('AWS::AutoScaling::AutoScalingGroup');
+    const overrides = Object.values(asgs)[0].Properties
+      .MixedInstancesPolicy.LaunchTemplate.Overrides;
+    expect(overrides.map((o: { InstanceType: string }) => o.InstanceType))
+      .toEqual(['g6e.xlarge', 'g6.xlarge', 'g5.xlarge']);
+  });
+});

@@ -105,8 +105,12 @@ export class TokenForgeStack extends cdk.Stack {
       .replace(/__VLLM_FLAGS__/g, profile.vllmFlags)
       .replace(/__MAX_MODEL_LEN__/g, String(profile.maxModelLen));
 
+    // instanceType은 콤마 구분 다중 타입 허용 ("g6e.xlarge,g5.xlarge") —
+    // capacity-optimized가 용량 있는 풀을 고를 수 있게 후보를 넓힌다
+    const instanceTypes = profile.instanceType.split(',').map((t) => t.trim());
+
     const launchTemplate = new ec2.LaunchTemplate(this, 'LaunchTemplate', {
-      instanceType: new ec2.InstanceType(profile.instanceType),
+      instanceType: new ec2.InstanceType(instanceTypes[0]),
       machineImage,
       userData: ec2.UserData.custom(bootScript),
       role: instanceRole,
@@ -138,9 +142,9 @@ export class TokenForgeStack extends cdk.Stack {
       // 확보 가능한 풀을 고른다 — 특정 AZ 용량 부족으로 배포가 실패하지 않게 함
       mixedInstancesPolicy: {
         launchTemplate,
-        launchTemplateOverrides: [
-          { instanceType: new ec2.InstanceType(profile.instanceType) },
-        ],
+        launchTemplateOverrides: instanceTypes.map((t) => ({
+          instanceType: new ec2.InstanceType(t),
+        })),
         instancesDistribution: {
           onDemandBaseCapacity: 0,
           onDemandPercentageAboveBaseCapacity: 0, // 전량 스팟
