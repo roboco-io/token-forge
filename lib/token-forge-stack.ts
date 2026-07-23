@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as fs from 'fs';
@@ -208,6 +209,63 @@ export class TokenForgeStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
     noCapacityAlarm.addAlarmAction(new cwactions.SnsAction(alertTopic));
+
+    // --- 비용 절감: 유휴 자동 셧다운 (-c idleMinutes=N, 기본 30, 0이면 비활성) ---
+    // ALB 요청이 idleMinutes 동안 0이면 Lambda가 ASG를 0으로 내린다.
+    // 재기동은 수동(scripts/start.sh) — 콜드부팅이 있어 자동 웨이크업은 실익 없음.
+    const idleMinutes = Number(this.node.tryGetContext('idleMinutes') ?? 30);
+    if (idleMinutes > 0) {
+      const idleStopFn = new lambda.Function(this, 'IdleStopFn', {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler: 'index.handler',
+        timeout: cdk.Duration.seconds(30),
+        environment: {
+          ASG_NAME: asg.autoScalingGroupName,
+          TOPIC_ARN: alertTopic.topicArn,
+        },
+        code: lambda.Code.fromInline(`
+const { AutoScalingClient, UpdateAutoScalingGroupCommand } = require('@aws-sdk/client-auto-scaling');
+const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
+exports.handler = async () => {
+  const asgName = process.env.ASG_NAME;
+  await new AutoScalingClient({}).send(new UpdateAutoScalingGroupCommand({
+    AutoScalingGroupName: asgName, MinSize: 0, DesiredCapacity: 0 }));
+  await new SNSClient({}).send(new PublishCommand({
+    TopicArn: process.env.TOPIC_ARN,
+    Subject: 'token-forge: idle shutdown',
+    Message: 'ASG ' + asgName + ' scaled to 0 (idle). Restart: scripts/start.sh <stack> <region>' }));
+};`),
+      });
+      idleStopFn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['autoscaling:UpdateAutoScalingGroup'],
+        resources: [asg.autoScalingGroupArn],
+      }));
+      alertTopic.grantPublish(idleStopFn);
+
+      const idleAlarm = new cloudwatch.Alarm(this, 'IdleAlarm', {
+        alarmDescription: `token-forge: no ALB requests for ${idleMinutes}min — scaling to 0`,
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/ApplicationELB',
+          metricName: 'RequestCount',
+          dimensionsMap: { LoadBalancer: alb.loadBalancerFullName },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+        }),
+        threshold: 0,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+        evaluationPeriods: Math.max(1, Math.round(idleMinutes / 5)),
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING, // 무요청=결측
+      });
+      new events.Rule(this, 'IdleAlarmRule', {
+        eventPattern: {
+          source: ['aws.cloudwatch'],
+          detailType: ['CloudWatch Alarm State Change'],
+          detail: { alarmName: [idleAlarm.alarmName], state: { value: ['ALARM'] } },
+        },
+        targets: [new targets.LambdaFunction(idleStopFn)],
+      });
+    }
 
     // --- 출력 ---
     new cdk.CfnOutput(this, 'EndpointUrl', {

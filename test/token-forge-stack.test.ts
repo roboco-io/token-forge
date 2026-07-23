@@ -252,3 +252,37 @@ describe('multi instance type', () => {
       .toEqual(['g6e.xlarge', 'g6.xlarge', 'g5.xlarge', 'g4dn.xlarge', 'g4dn.2xlarge']);
   });
 });
+
+describe('idle shutdown', () => {
+  test('default: idle alarm (30min=6 periods) and stop lambda exist', () => {
+    const template = makeTemplate();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      MetricName: 'RequestCount',
+      Namespace: 'AWS/ApplicationELB',
+      Threshold: 0,
+      ComparisonOperator: 'LessThanOrEqualToThreshold',
+      EvaluationPeriods: 6,
+      TreatMissingData: 'breaching',
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs20.x',
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ ASG_NAME: Match.anyValue() }),
+      }),
+    });
+  });
+
+  test('-c idleMinutes=0 disables idle shutdown', () => {
+    const app = new cdk.App({ context: { idleMinutes: 0 } });
+    const resolvedProfile = loadModelProfile(
+      path.join(__dirname, '..', 'models'), 'solar-open2-250b', 'int4',
+    );
+    const stack = new TokenForgeStack(app, 'NoIdleTest', {
+      resolvedProfile,
+      env: { account: '111111111111', region: 'us-east-2' },
+    });
+    const template = Template.fromStack(stack);
+    const alarms = template.findResources('AWS::CloudWatch::Alarm');
+    expect(Object.keys(alarms)).toHaveLength(1); // NoCapacityAlarm만 남는다
+  });
+});
