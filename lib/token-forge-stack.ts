@@ -173,5 +173,16 @@ export class TokenForgeStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
     noCapacityAlarm.addAlarmAction(new cwactions.SnsAction(alertTopic));
+
+    // --- 출력 ---
+    new cdk.CfnOutput(this, 'EndpointUrl', {
+      value: `http://${alb.loadBalancerDnsName}`,
+      description: 'OpenAI-compatible endpoint base URL',
+    });
+    new cdk.CfnOutput(this, 'ApiKeySecretArn', {
+      value: apiKeySecret.secretArn,
+      description: 'Retrieve: aws secretsmanager get-secret-value --secret-id <arn>',
+    });
+    new cdk.CfnOutput(this, 'WeightsBucketName', { value: weightsBucket.bucketName });
   }
 }

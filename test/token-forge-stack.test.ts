@@ -168,3 +168,13 @@ describe('alerts', () => {
     });
   });
 });
+
+describe('outputs', () => {
+  const template = makeTemplate();
+
+  test.each(['EndpointUrl', 'ApiKeySecretArn', 'WeightsBucketName'])(
+    'exposes %s output', (name) => {
+      template.hasOutput(name, {});
+    },
+  );
+});
