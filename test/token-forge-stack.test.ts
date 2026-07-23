@@ -142,3 +142,29 @@ describe('compute', () => {
     });
   });
 });
+
+describe('alerts', () => {
+  const template = makeTemplate();
+
+  test('EventBridge routes spot interruption warnings to SNS', () => {
+    template.hasResourceProperties('AWS::Events::Rule', {
+      EventPattern: {
+        source: ['aws.ec2'],
+        'detail-type': ['EC2 Spot Instance Interruption Warning'],
+      },
+    });
+    template.resourceCountIs('AWS::SNS::Topic', 1);
+  });
+
+  test('alarm fires when InService < 1 for 30 minutes', () => {
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      MetricName: 'GroupInServiceInstances',
+      Namespace: 'AWS/AutoScaling',
+      ComparisonOperator: 'LessThanThreshold',
+      Threshold: 1,
+      EvaluationPeriods: 6,
+      Period: 300,
+      TreatMissingData: 'breaching',
+    });
+  });
+});

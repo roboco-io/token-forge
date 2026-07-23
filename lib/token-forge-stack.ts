@@ -7,6 +7,12 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cwactions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
 import { ResolvedProfile } from './model-profile';
 
@@ -136,5 +142,36 @@ export class TokenForgeStack extends cdk.Stack {
       },
       deregistrationDelay: cdk.Duration.seconds(30),
     });
+
+    // --- 알림: 스팟 중단 경고 + 30분 무용량 알람 → SNS ---
+    const alertTopic = new sns.Topic(this, 'AlertTopic');
+    const alertEmail = this.node.tryGetContext('alertEmail');
+    if (alertEmail) {
+      alertTopic.addSubscription(new subs.EmailSubscription(alertEmail));
+    }
+
+    new events.Rule(this, 'SpotInterruptionRule', {
+      eventPattern: {
+        source: ['aws.ec2'],
+        detailType: ['EC2 Spot Instance Interruption Warning'],
+      },
+      targets: [new targets.SnsTopic(alertTopic)],
+    });
+
+    const noCapacityAlarm = new cloudwatch.Alarm(this, 'NoCapacityAlarm', {
+      alarmDescription: 'token-forge: no in-service instance for 30 minutes (spot quota/capacity?)',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/AutoScaling',
+        metricName: 'GroupInServiceInstances',
+        dimensionsMap: { AutoScalingGroupName: asg.autoScalingGroupName },
+        statistic: 'Minimum',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 6, // 5분 × 6 = 30분
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+    noCapacityAlarm.addAlarmAction(new cwactions.SnsAction(alertTopic));
   }
 }
