@@ -249,6 +249,6 @@ describe('multi instance type', () => {
     const overrides = Object.values(asgs)[0].Properties
       .MixedInstancesPolicy.LaunchTemplate.Overrides;
     expect(overrides.map((o: { InstanceType: string }) => o.InstanceType))
-      .toEqual(['g6e.xlarge', 'g6.xlarge', 'g5.xlarge']);
+      .toEqual(['g6e.xlarge', 'g6.xlarge', 'g5.xlarge', 'g4dn.xlarge', 'g4dn.2xlarge']);
   });
 });

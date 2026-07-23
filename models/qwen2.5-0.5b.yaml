@@ -5,8 +5,10 @@ vllmImage: vllm/vllm-openai:latest
 profiles:
   bf16:
     weightsRepo: Qwen/Qwen2.5-0.5B-Instruct
-    # 다중 후보: capacity-optimized가 용량 있는 스팟 풀 선택 (0.5B는 셋 다 여유)
-    instanceType: g6e.xlarge,g6.xlarge,g5.xlarge
+    # 다중 후보: capacity-optimized가 용량 있는 스팟 풀 선택 (0.5B는 모두 여유)
+    # g4dn(T4)까지 포함 — 가장 풀이 큰 GPU 스팟
+    instanceType: g6e.xlarge,g6.xlarge,g5.xlarge,g4dn.xlarge,g4dn.2xlarge
+    # float16: T4(compute 7.5)는 bf16 미지원 — 전 후보 타입 공통 동작
     vllmFlags: >-
-      --gpu-memory-utilization 0.90
+      --gpu-memory-utilization 0.90 --dtype float16
     maxModelLen: 8192
