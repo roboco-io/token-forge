@@ -1,0 +1,24 @@
+# upstage/Solar-Open2-250B — Hybrid-Attention MoE 250B (활성 15B)
+# vLLM은 Upstage 포크 필수 (업스트림 미병합, 2026-07 기준)
+model: solar-open2-250b
+vllmImage: upstage/vllm-solar-open2:v0.22.0-solar-open2
+profiles:
+  int4:
+    # 공식 양자화 (llm-compressor 포맷, ~150GB) — 기본 프로파일
+    weightsRepo: nota-ai/Solar-Open2-250B-Nota-INT4
+    instanceType: p5.48xlarge
+    vllmFlags: >-
+      --tensor-parallel-size 8 --enable-expert-parallel --moe-backend triton
+      --reasoning-parser solar_open2 --tool-call-parser solar_open2
+      --enable-auto-tool-choice
+    # 1M 풀 컨텍스트는 KV 캐시 메모리상 불가 — 128K 캡
+    maxModelLen: 131072
+  bf16:
+    # 원본 가중치 (~501GB, safetensors 94개)
+    weightsRepo: upstage/Solar-Open2-250B
+    instanceType: p5.48xlarge
+    vllmFlags: >-
+      --tensor-parallel-size 8 --enable-expert-parallel --moe-backend triton
+      --reasoning-parser solar_open2 --tool-call-parser solar_open2
+      --enable-auto-tool-choice
+    maxModelLen: 131072
