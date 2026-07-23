@@ -34,11 +34,10 @@ if aws s3api head-object --bucket "${BUCKET}" --key "${MODEL_KEY}/.complete" \
   s5cmd cp "s3://${BUCKET}/${MODEL_KEY}/*" "${MODEL_DIR}/"
 else
   echo "S3 cache miss — downloading from Hugging Face"
-  python3 -m pip install --quiet "huggingface_hub[cli]"
+  python3 -m pip install --quiet "huggingface_hub[cli]>=0.30,<1.0"
   ok=""
   for attempt in 1 2 3; do
-    if python3 -m huggingface_hub.commands.huggingface_cli \
-        download "${WEIGHTS_REPO}" --local-dir "${MODEL_DIR}"; then
+    if huggingface-cli download "${WEIGHTS_REPO}" --local-dir "${MODEL_DIR}"; then
       ok=1; break
     fi
     echo "HF download attempt ${attempt} failed; retrying in 30s"
@@ -60,6 +59,10 @@ docker rm -f vllm >/dev/null 2>&1 || true
 docker run -d --name vllm --restart always --gpus all \
   --shm-size 32g -p 8000:8000 \
   -v "${MODEL_DIR}:/model" \
+  --log-driver awslogs \
+  --log-opt awslogs-region="${REGION}" \
+  --log-opt awslogs-group=/token-forge/vllm \
+  --log-opt awslogs-create-group=true \
   "${VLLM_IMAGE}" \
   --model /model \
   --served-model-name "${WEIGHTS_REPO}" \

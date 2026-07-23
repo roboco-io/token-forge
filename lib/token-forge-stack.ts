@@ -80,6 +80,14 @@ export class TokenForgeStack extends cdk.Stack {
     });
     apiKeySecret.grantRead(instanceRole);
     weightsBucket.grantReadWrite(instanceRole);
+    // awslogs 도커 로그 드라이버가 관리형 정책 변경과 무관하게 항상 쓸 수 있도록 명시적으로 부여
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: [
+        `arn:aws:logs:${this.region}:${this.account}:log-group:/token-forge/*`,
+        `arn:aws:logs:${this.region}:${this.account}:log-group:/token-forge/*:*`,
+      ],
+    }));
 
     // --- 컴퓨트: DLAMI(base GPU) + Spot Launch Template + ASG min1/max1 ---
     const machineImage = ec2.MachineImage.fromSsmParameter(

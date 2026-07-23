@@ -102,6 +102,18 @@ describe('storage and security', () => {
       }),
     });
   });
+
+  test('instance role can write vLLM container logs to CloudWatch Logs', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(['logs:PutLogEvents']),
+          }),
+        ]),
+      }),
+    });
+  });
 });
 
 describe('compute', () => {

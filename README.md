@@ -37,10 +37,10 @@ cdk deploy -c model=solar-open2-250b -c profile=int4 -c region=us-east-2
 ```bash
 API_KEY=$(aws secretsmanager get-secret-value \
   --secret-id <ApiKeySecretArn 출력값> --query SecretString --output text)
-scripts/smoke-test.sh http://<EndpointUrl 출력값> "${API_KEY}"
+scripts/smoke-test.sh <EndpointUrl 출력값> "${API_KEY}"
 ```
 
-OpenAI SDK: `base_url="http://<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
+OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 
 ## 새 모델 추가
 
@@ -52,7 +52,7 @@ OpenAI SDK: `base_url="http://<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 | 증상 | 확인 |
 |---|---|
 | 30분 넘게 InService 0 (SNS 알람) | p5 스팟 쿼터/용량 부족. Service Quotas·다른 리전 검토 |
-| 인스턴스가 계속 교체됨 | SSM 세션 접속 → `cat /var/log/token-forge-boot.log`, `docker logs vllm` (OOM 등) |
+| 인스턴스가 계속 교체됨 | SSM 세션 접속 → `cat /var/log/token-forge-boot.log`, `docker logs vllm` (OOM 등). vLLM 컨테이너 로그는 CloudWatch Logs 그룹 `/token-forge/vllm`에서도 확인 가능 (인스턴스 종료 후에도 보존) |
 | 스팟 중단 알림 수신 | 정상 — ASG가 자동 재프로비저닝. S3 캐시로 ~15분 내 복구 |
 | HF 다운로드 3회 실패 | 로그 확인 후 인스턴스 종료(ASG 교체) 또는 네트워크 점검 |
 
