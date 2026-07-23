@@ -1,0 +1,11 @@
+# Qwen/Qwen2.5-0.5B-Instruct — token-forge 파이프라인 선검증용 소형 프로파일.
+# 업스트림 공식 vLLM 이미지 사용 (Solar 포크 불필요), 단일 GPU.
+model: qwen2.5-0.5b
+vllmImage: vllm/vllm-openai:latest
+profiles:
+  bf16:
+    weightsRepo: Qwen/Qwen2.5-0.5B-Instruct
+    instanceType: g6e.xlarge
+    vllmFlags: >-
+      --gpu-memory-utilization 0.90
+    maxModelLen: 8192
