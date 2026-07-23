@@ -113,9 +113,8 @@ export class TokenForgeStack extends cdk.Stack {
       securityGroup: instanceSg,
       associatePublicIpAddress: true, // 퍼블릭 서브넷, NAT 없음
       requireImdsv2: true,
-      spotOptions: {
-        interruptionBehavior: ec2.SpotInstanceInterruption.TERMINATE,
-      },
+      // 스팟 여부는 ASG MixedInstancesPolicy(InstancesDistribution)가 결정 —
+      // LT에 spotOptions를 두면 MixedInstancesPolicy와 충돌한다
       blockDevices: [{
         deviceName: '/dev/sda1',
         volume: ec2.BlockDeviceVolume.ebs(200, {
@@ -127,7 +126,21 @@ export class TokenForgeStack extends cdk.Stack {
     const asg = new autoscaling.AutoScalingGroup(this, 'Asg', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      launchTemplate,
+      // 100% 스팟 + capacity-optimized: 용량 없는 AZ 풀(lowest-price 고착)을 피해
+      // 확보 가능한 풀을 고른다 — 특정 AZ 용량 부족으로 배포가 실패하지 않게 함
+      mixedInstancesPolicy: {
+        launchTemplate,
+        launchTemplateOverrides: [
+          { instanceType: new ec2.InstanceType(profile.instanceType) },
+        ],
+        instancesDistribution: {
+          onDemandBaseCapacity: 0,
+          onDemandPercentageAboveBaseCapacity: 0, // 전량 스팟
+          spotAllocationStrategy:
+            autoscaling.SpotAllocationStrategy.CAPACITY_OPTIMIZED,
+        },
+      },
+      capacityRebalance: true, // 중단 경고 시 선제 교체
       minCapacity: 1,
       maxCapacity: 1, // 스코프: 오토스케일링 없음
       healthChecks: autoscaling.HealthChecks.withAdditionalChecks({

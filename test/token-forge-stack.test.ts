@@ -119,13 +119,25 @@ describe('storage and security', () => {
 describe('compute', () => {
   const template = makeTemplate();
 
-  test('launch template uses spot p5.48xlarge with IMDSv2', () => {
+  test('launch template uses p5.48xlarge with IMDSv2', () => {
     template.hasResourceProperties('AWS::EC2::LaunchTemplate', {
       LaunchTemplateData: Match.objectLike({
         InstanceType: 'p5.48xlarge',
-        InstanceMarketOptions: Match.objectLike({ MarketType: 'spot' }),
         MetadataOptions: Match.objectLike({ HttpTokens: 'required' }),
       }),
+    });
+  });
+
+  test('ASG is 100% spot with capacity-optimized allocation', () => {
+    template.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', {
+      MixedInstancesPolicy: Match.objectLike({
+        InstancesDistribution: Match.objectLike({
+          OnDemandBaseCapacity: 0,
+          OnDemandPercentageAboveBaseCapacity: 0,
+          SpotAllocationStrategy: 'capacity-optimized',
+        }),
+      }),
+      CapacityRebalance: true,
     });
   });
 
