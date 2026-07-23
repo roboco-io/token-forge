@@ -215,3 +215,21 @@ describe('outputs', () => {
     },
   );
 });
+
+describe('az filter context', () => {
+  test('-c azs= restricts ASG subnets to the given AZs', () => {
+    // 유닛 테스트 합성 환경의 AZ는 dummy1a/dummy1b — 그중 1개만 선택
+    const app = new cdk.App({ context: { azs: 'dummy1a' } });
+    const resolvedProfile = loadModelProfile(
+      path.join(__dirname, '..', 'models'), 'solar-open2-250b', 'int4',
+    );
+    const stack = new TokenForgeStack(app, 'AzTest', {
+      resolvedProfile,
+      env: { account: '111111111111', region: 'us-east-2' },
+    });
+    const template = Template.fromStack(stack);
+    const asgs = template.findResources('AWS::AutoScaling::AutoScalingGroup');
+    const zoneIds = Object.values(asgs)[0].Properties.VPCZoneIdentifier;
+    expect(zoneIds).toHaveLength(1);
+  });
+});

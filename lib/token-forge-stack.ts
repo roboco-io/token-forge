@@ -125,7 +125,15 @@ export class TokenForgeStack extends cdk.Stack {
 
     const asg = new autoscaling.AutoScalingGroup(this, 'Asg', {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      // -c azs=us-east-1a,us-east-1b 형태로 인스턴스 타입을 지원하는 AZ만 선택
+      // (미지정 시 전 AZ — 일부 AZ가 해당 GPU 타입을 미지원하면 스팟 요청이
+      //  InvalidFleetConfiguration으로 실패할 수 있음)
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PUBLIC,
+        ...(this.node.tryGetContext('azs')
+          ? { availabilityZones: String(this.node.tryGetContext('azs')).split(',') }
+          : {}),
+      },
       // 100% 스팟 + capacity-optimized: 용량 없는 AZ 풀(lowest-price 고착)을 피해
       // 확보 가능한 풀을 고른다 — 특정 AZ 용량 부족으로 배포가 실패하지 않게 함
       mixedInstancesPolicy: {
