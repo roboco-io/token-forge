@@ -153,7 +153,9 @@ export class TokenForgeStack extends cdk.Stack {
         },
       },
       capacityRebalance: true, // 중단 경고 시 선제 교체
-      minCapacity: 1,
+      // -c minCapacity=0: 스팟 용량 고갈 시 CFN 생성을 빈 ASG로 통과시키고
+      // 배포 후 desired=1로 올려 ASG가 무기한 재시도하게 함 (스펙 §6 의도)
+      minCapacity: Number(this.node.tryGetContext('minCapacity') ?? 1),
       maxCapacity: 1, // 스코프: 오토스케일링 없음
       healthChecks: autoscaling.HealthChecks.withAdditionalChecks({
         gracePeriod: cdk.Duration.minutes(20), // 모델 로드 ~15분 + 여유
