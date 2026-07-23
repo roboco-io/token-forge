@@ -13,7 +13,10 @@ const resolvedProfile = loadModelProfile(
   path.join(__dirname, '..', 'models'), model, profileName,
 );
 
-new TokenForgeStack(app, `TokenForge-${model}-${profileName}`, {
+// CloudFormation 스택 이름 제약(/^[A-Za-z][A-Za-z0-9-]*$/)에 맞게 정규화
+const stackName = `TokenForge-${model}-${profileName}`.replace(/[^A-Za-z0-9-]/g, '-');
+
+new TokenForgeStack(app, stackName, {
   resolvedProfile,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region },
 });
