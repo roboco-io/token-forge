@@ -3,7 +3,7 @@
 Hugging Face 오픈소스 LLM을 AWS **스팟 인스턴스 기본**으로 서빙하는 AWS CDK 템플릿.
 초기 타겟: [upstage/Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B).
 
-> **상태:** 설계 완료, 구현 진행 중 — [설계 문서](docs/superpowers/specs/2026-07-23-token-forge-design.md) 참고.
+> 설계 문서: [docs/superpowers/specs/2026-07-23-token-forge-design.md](docs/superpowers/specs/2026-07-23-token-forge-design.md)
 
 ## 아키텍처
 
