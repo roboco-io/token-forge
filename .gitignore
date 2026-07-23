@@ -4,3 +4,4 @@ cdk.out/
 *.d.ts
 !jest.config.js
 .DS_Store
+cdk.context.json
