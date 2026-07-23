@@ -132,7 +132,13 @@ describe('compute', () => {
   test('user data has substituted placeholders and vLLM flags', () => {
     const lts = template.findResources('AWS::EC2::LaunchTemplate');
     const userData = JSON.stringify(Object.values(lts)[0]);
-    expect(userData).not.toContain('__WEIGHTS_REPO__'); // 치환 완료
+    const PLACEHOLDERS = [
+      '__REGION__', '__API_KEY_SECRET_ARN__', '__WEIGHTS_BUCKET__',
+      '__WEIGHTS_REPO__', '__VLLM_IMAGE__', '__VLLM_FLAGS__', '__MAX_MODEL_LEN__',
+    ];
+    for (const ph of PLACEHOLDERS) {
+      expect(userData).not.toContain(ph); // 치환 완료
+    }
     expect(userData).toContain('nota-ai/Solar-Open2-250B-Nota-INT4');
     expect(userData).toContain('--tensor-parallel-size 8');
     expect(userData).toContain('upstage/vllm-solar-open2:v0.22.0-solar-open2');
@@ -164,6 +170,9 @@ describe('alerts', () => {
         source: ['aws.ec2'],
         'detail-type': ['EC2 Spot Instance Interruption Warning'],
       },
+      Targets: Match.arrayWith([
+        Match.objectLike({ Arn: { Ref: Match.stringLikeRegexp('AlertTopic') } }),
+      ]),
     });
     template.resourceCountIs('AWS::SNS::Topic', 1);
   });
@@ -176,7 +185,11 @@ describe('alerts', () => {
       Threshold: 1,
       EvaluationPeriods: 6,
       Period: 300,
+      Statistic: 'Minimum',
       TreatMissingData: 'breaching',
+      AlarmActions: Match.arrayWith([
+        Match.objectLike({ Ref: Match.stringLikeRegexp('AlertTopic') }),
+      ]),
     });
   });
 });

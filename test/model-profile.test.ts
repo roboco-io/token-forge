@@ -31,6 +31,36 @@ describe('loadModelProfile', () => {
     expect(() => loadModelProfile(fixturesDir, 'dummy-model', 'broken'))
       .toThrow(/missing required field "vllmFlags"/);
   });
+
+  test('throws when a required field is an empty string', () => {
+    expect(() => loadModelProfile(fixturesDir, 'dummy-model', 'empty-field'))
+      .toThrow(/missing required field "weightsRepo"/);
+  });
+
+  test('throws when the YAML doc is empty/null', () => {
+    expect(() => loadModelProfile(fixturesDir, 'empty-doc', 'int4'))
+      .toThrow(/Model file .*empty-doc\.yaml missing required top-level field "model"/);
+  });
+
+  test('throws when the YAML doc is not an object', () => {
+    expect(() => loadModelProfile(fixturesDir, 'not-an-object', 'int4'))
+      .toThrow(/Model file .*not-an-object\.yaml missing required top-level field "model"/);
+  });
+
+  test('throws when top-level "model" field is missing', () => {
+    expect(() => loadModelProfile(fixturesDir, 'missing-model', 'int4'))
+      .toThrow(/Model file .*missing-model\.yaml missing required top-level field "model"/);
+  });
+
+  test('throws when top-level "vllmImage" field is missing', () => {
+    expect(() => loadModelProfile(fixturesDir, 'missing-vllmimage', 'int4'))
+      .toThrow(/Model file .*missing-vllmimage\.yaml missing required top-level field "vllmImage"/);
+  });
+
+  test('throws when top-level "profiles" field is missing', () => {
+    expect(() => loadModelProfile(fixturesDir, 'missing-profiles', 'int4'))
+      .toThrow(/Model file .*missing-profiles\.yaml missing required top-level field "profiles"/);
+  });
 });
 
 describe('solar-open2-250b profile', () => {

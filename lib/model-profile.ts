@@ -32,14 +32,22 @@ export function loadModelProfile(
   if (!fs.existsSync(filePath)) {
     throw new Error(`Model profile not found: ${filePath}`);
   }
-  const doc = yaml.load(fs.readFileSync(filePath, 'utf8')) as ModelProfileFile;
+  const doc = yaml.load(fs.readFileSync(filePath, 'utf8')) as ModelProfileFile | null;
+  if (doc === null || doc === undefined || typeof doc !== 'object' || Array.isArray(doc)) {
+    throw new Error(`Model file ${filePath} missing required top-level field "model"`);
+  }
+  for (const field of ['model', 'vllmImage', 'profiles'] as const) {
+    if (doc[field] === undefined) {
+      throw new Error(`Model file ${filePath} missing required top-level field "${field}"`);
+    }
+  }
   const variant = doc.profiles?.[profile];
   if (!variant) {
     const available = Object.keys(doc.profiles ?? {}).join(', ');
     throw new Error(`Profile "${profile}" not found in ${filePath}. Available: ${available}`);
   }
   for (const field of REQUIRED_FIELDS) {
-    if (variant[field] === undefined) {
+    if (variant[field] === undefined || variant[field] === '') {
       throw new Error(`Profile "${profile}" in ${filePath} missing required field "${field}"`);
     }
   }

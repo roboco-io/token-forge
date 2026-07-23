@@ -1,0 +1,7 @@
+model: dummy-model
+profiles:
+  int4:
+    weightsRepo: example/dummy-int4
+    instanceType: p5.48xlarge
+    vllmFlags: "--tensor-parallel-size 8"
+    maxModelLen: 131072
