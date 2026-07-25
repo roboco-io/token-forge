@@ -17,7 +17,8 @@ Hugging Face 오픈소스 LLM을 AWS **스팟 인스턴스 기본**으로 서빙
 ## 사전 조건
 
 - **p5 스팟 vCPU 쿼터 192개** — 대부분 계정 기본 0. Service Quotas에서
-  "All P5 Spot Instance Requests" 상향 신청 필요.
+  "All P Spot Instance Requests"(L-7212CCBC) 상향 신청 필요. 신규 계정은 부분 승인이
+  흔하므로 **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)** 의 어필 문안 작성법 참고.
 - 비용 참고: p5.48xlarge 스팟 약 **$30~50/hr** (리전·시점 변동). 사용 후 `cdk destroy` 권장.
 - Node 20+, AWS CDK CLI (`npm i -g aws-cdk`), 부트스트랩된 계정(`cdk bootstrap`).
 
