@@ -5,3 +5,6 @@ cdk.out/
 !jest.config.js
 .DS_Store
 cdk.context.json
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/hooks/
