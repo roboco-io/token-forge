@@ -30,7 +30,7 @@
 - Consumes: 없음 (독립 스택)
 - Produces: `export class SpotScoreCollectorStack extends cdk.Stack` — 생성자 시그니처 `(scope: Construct, id: string, props?: cdk.StackProps)`. Task 2의 bin이 import.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `test/spot-score-collector-stack.test.ts`:
 
@@ -101,12 +101,12 @@ test('역할에 GetSpotPlacementScores와 테이블 BatchWriteItem 권한', () =
 });
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `npx jest test/spot-score-collector-stack.test.ts`
 Expected: FAIL — `Cannot find module '../lib/spot-score-collector-stack'`
 
-- [ ] **Step 3: 스택 구현**
+- [x] **Step 3: 스택 구현**
 
 `lib/spot-score-collector-stack.ts`:
 
@@ -221,17 +221,17 @@ exports.handler = async () => {
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `npx jest test/spot-score-collector-stack.test.ts`
 Expected: PASS 5건. 실패 시 스테일 `*.js` 산출물 먼저 의심(`find lib test -name '*.js' -delete` 후 재시도).
 
-- [ ] **Step 5: 전체 테스트 + 타입 체크**
+- [x] **Step 5: 전체 테스트 + 타입 체크**
 
 Run: `npm test && npm run build`
 Expected: 기존 테스트 포함 전부 PASS, tsc 에러 없음
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add lib/spot-score-collector-stack.ts test/spot-score-collector-stack.test.ts
@@ -252,7 +252,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: Task 1의 `SpotScoreCollectorStack` (`../lib/spot-score-collector-stack`)
 - Produces: `npx cdk synth|deploy|destroy -c collector=1` CLI 계약
 
-- [ ] **Step 1: bin 분기 구현**
+- [x] **Step 1: bin 분기 구현**
 
 `bin/token-forge.ts`의 `const app = new cdk.App();` 직후를 다음 구조로 변경
 (기존 서빙 스택 로직은 else 블록으로 그대로 이동):
@@ -291,12 +291,12 @@ if (app.node.tryGetContext('collector')) {
 }
 ```
 
-- [ ] **Step 2: synth 양방향 수동 검증**
+- [x] **Step 2: synth 양방향 수동 검증**
 
 Run: `npx cdk synth -c collector=1 --quiet 2>&1 | tail -3 && npx cdk synth -c model=solar-open2-250b -c profile=int4 --quiet 2>&1 | tail -3`
 Expected: 둘 다 에러 없이 종료. 첫 번째는 수집기 스택만, 두 번째는 기존 서빙 스택만 합성.
 
-- [ ] **Step 3: CLAUDE.md 명령어 추가**
+- [x] **Step 3: CLAUDE.md 명령어 추가**
 
 CLAUDE.md의 명령어 코드블록에서 `scripts/start.sh` 라인 위에 추가:
 
@@ -305,12 +305,12 @@ npx cdk deploy -c collector=1              # 스팟 배치점수 수집기 (별�
 npx cdk destroy -c collector=1             # 수집기 삭제 (수집 이력도 함께 삭제됨)
 ```
 
-- [ ] **Step 4: 전체 테스트 확인**
+- [x] **Step 4: 전체 테스트 확인**
 
 Run: `npm test`
 Expected: 전부 PASS (bin 변경이 기존 스택 테스트에 영향 없음 확인)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add bin/token-forge.ts CLAUDE.md
@@ -329,12 +329,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: Task 2의 `npx cdk deploy -c collector=1`
 - Produces: 가동 중인 `TokenForge-SpotScoreCollector` 스택 (월 $0.01 미만, GPU 무관)
 
-- [ ] **Step 1: 배포**
+- [x] **Step 1: 배포**
 
 Run: `npx cdk deploy -c collector=1 --require-approval never`
 Expected: `TokenForge-SpotScoreCollector` CREATE_COMPLETE, 출력 `ScoresTableName` 확인
 
-- [ ] **Step 2: Lambda 수동 1회 실행**
+- [x] **Step 2: Lambda 수동 1회 실행**
 
 ```bash
 FN=$(aws cloudformation describe-stack-resources --stack-name TokenForge-SpotScoreCollector \
@@ -344,7 +344,7 @@ aws lambda invoke --function-name "$FN" --region us-east-1 /dev/stdout
 
 Expected: StatusCode 200, FunctionError 없음
 
-- [ ] **Step 3: 적재 데이터 확인**
+- [x] **Step 3: 적재 데이터 확인**
 
 ```bash
 TABLE=$(aws cloudformation describe-stacks --stack-name TokenForge-SpotScoreCollector \
@@ -355,7 +355,7 @@ aws dynamodb scan --table-name "$TABLE" --region us-east-1 --max-items 25 \
 
 Expected: `region#` 3건 + `az#` 여러 건, score 1~10, 동일 ts. `expireAt`이 약 90일 뒤 epoch초인지 1건 눈으로 확인.
 
-- [ ] **Step 4: 완료 보고**
+- [x] **Step 4: 완료 보고**
 
 수집 시작 시각·테이블명·다음 자동 실행(1시간 뒤)을 사용자에게 보고.
 GPU 인스턴스와 무관한 스택이므로 비용 가드 대상 아님을 명시.
