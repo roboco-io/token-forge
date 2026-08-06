@@ -21,6 +21,9 @@ npx cdk synth -c model=solar-open2-250b -c profile=int4 --quiet
 npx cdk deploy -c model=<model> -c profile=<profile> -c region=<r> \
   [-c azs=us-east-1a,us-east-1b] [-c minCapacity=0] [-c idleMinutes=60] [-c alertEmail=...]
 
+npx cdk deploy -c collector=1              # 스팟 배치점수 수집기 (별도 스택, 상시 가동)
+npx cdk destroy -c collector=1             # 수집기 삭제 (수집 이력도 함께 삭제됨)
+
 scripts/start.sh <stack-name> <region>     # desired=1 (기동)
 scripts/stop.sh  <stack-name> <region>     # min=0, desired=0 (GPU 비용 정지)
 scripts/smoke-test.sh <endpoint-url> <api-key>  # /v1/models + /v1/chat/completions 검증
