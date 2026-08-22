@@ -43,11 +43,61 @@ test('Lambda 런타임과 수집 파라미터 env 주입', () => {
     Timeout: 60,
     Environment: {
       Variables: Match.objectLike({
-        INSTANCE_TYPES: 'p5.48xlarge',
-        REGIONS: 'us-east-1,us-east-2,us-west-2',
+        INSTANCE_TYPES: 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge',
+        REGIONS: 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2',
         TTL_DAYS: '90',
       }),
     },
+  });
+});
+
+test('대시보드 버킷은 정적 웹사이트 호스팅 + 퍼블릭 읽기 정책', () => {
+  const t = makeCollectorTemplate();
+  t.hasResourceProperties('AWS::S3::Bucket', {
+    WebsiteConfiguration: { IndexDocument: 'index.html' },
+  });
+  t.hasResourceProperties('AWS::S3::BucketPolicy', {
+    PolicyDocument: Match.objectLike({
+      Statement: Match.arrayWith([
+        Match.objectLike({ Action: 's3:GetObject', Effect: 'Allow', Principal: Match.objectLike({ AWS: '*' }) }),
+      ]),
+    }),
+  });
+});
+
+test('퍼블리셔 Lambda는 Python 런타임 + 시간당 룰이 수집기·퍼블리셔 둘 다 타깃', () => {
+  const t = makeCollectorTemplate();
+  t.hasResourceProperties('AWS::Lambda::Function', {
+    Runtime: 'python3.12',
+    Timeout: 300,
+    Environment: {
+      Variables: Match.objectLike({
+        INSTANCE_TYPES: 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge',
+        REGIONS: 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2',
+      }),
+    },
+  });
+  t.hasResourceProperties('AWS::Events::Rule', {
+    ScheduleExpression: 'rate(1 hour)',
+    Targets: Match.arrayWith([Match.objectLike({ Id: Match.stringLikeRegexp('.*') })]),
+  });
+});
+
+test('CloudFront가 S3 website 오리진 앞에서 HTTPS 리다이렉트 + CORS 헤더 제공', () => {
+  const t = makeCollectorTemplate();
+  t.hasResourceProperties('AWS::CloudFront::Distribution', {
+    DistributionConfig: Match.objectLike({
+      DefaultCacheBehavior: Match.objectLike({
+        ViewerProtocolPolicy: 'redirect-to-https',
+        // 관리형 정책 CORS-AllowAllOrigins (data.json 오픈 데이터 피드용)
+        ResponseHeadersPolicyId: '60669652-455b-4ae9-85a4-c4c02393f86c',
+      }),
+      Origins: Match.arrayWith([
+        Match.objectLike({
+          CustomOriginConfig: Match.objectLike({ OriginProtocolPolicy: 'http-only' }),
+        }),
+      ]),
+    }),
   });
 });
 

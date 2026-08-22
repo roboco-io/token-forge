@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스팟 배치점수 × 가격 대시보드</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+    --s-apne1: #2a78d6; --s-apne2: #eb6834; --s-use1: #1baf7a; --s-use2: #eda100; --s-usw2: #e87ba4;
+    --good: #0ca30c; --bad: #d03b3b;
+    --wash-good: rgba(42,120,214,0.07); --btn-on: #0b0b0b; --btn-on-ink: #fcfcfb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+      --s-apne1: #3987e5; --s-apne2: #d95926; --s-use1: #199e70; --s-use2: #c98500; --s-usw2: #d55181;
+      --good: #0ca30c; --bad: #e66767;
+      --wash-good: rgba(57,135,229,0.12); --btn-on: #ffffff; --btn-on-ink: #1a1a19;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s-apne1: #3987e5; --s-apne2: #d95926; --s-use1: #199e70; --s-use2: #c98500; --s-usw2: #d55181;
+    --good: #0ca30c; --bad: #e66767;
+    --wash-good: rgba(57,135,229,0.12); --btn-on: #ffffff; --btn-on-ink: #1a1a19;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+    --s-apne1: #2a78d6; --s-apne2: #eb6834; --s-use1: #1baf7a; --s-use2: #eda100; --s-usw2: #e87ba4;
+    --good: #0ca30c; --bad: #d03b3b;
+    --wash-good: rgba(42,120,214,0.07); --btn-on: #0b0b0b; --btn-on-ink: #fcfcfb;
+  }
+  body { background: var(--page); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; padding: 28px 20px 60px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header h1 { font-size: 1.45rem; margin: 0 0 4px; text-wrap: balance; }
+  header .sub { color: var(--ink-2); font-size: 0.9rem; margin: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 16px 0 6px; }
+  .ranges, .chips { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px; overflow: hidden; }
+  .ranges button, .chips button { font: 600 0.8rem/1 system-ui, sans-serif; padding: 7px 12px; border: none; cursor: pointer;
+    background: var(--surface); color: var(--ink-2); }
+  .ranges button + button, .chips button + button { border-left: 1px solid var(--ring); }
+  .ranges button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--btn-on); color: var(--btn-on-ink); }
+  .ranges button:focus-visible, .chips button:focus-visible { outline: 2px solid var(--s-apne1); outline-offset: -2px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  .legend .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 0.85rem; color: var(--ink-2); }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 14px 0 8px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; }
+  .tile .k { font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .tile .v { font-size: 1.3rem; font-weight: 650; }
+  .tile .d { font-size: 0.83rem; color: var(--ink-2); margin-top: 2px; }
+  section.type { margin-top: 36px; }
+  section.type > h2 { font-size: 1.08rem; margin: 0 0 2px; }
+  section.type .note { color: var(--ink-2); font-size: 0.85rem; margin: 0 0 12px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 860px) { .charts { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 12px 14px 8px; position: relative; }
+  .card h3 { font-size: 0.85rem; font-weight: 600; color: var(--ink-2); margin: 0 0 6px; }
+  .card .span { font-weight: 400; color: var(--muted); }
+  .card svg { display: block; width: 100%; height: auto; }
+  .empty { color: var(--muted); font-size: 0.85rem; padding: 40px 0; text-align: center; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--ring);
+    border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.14); padding: 8px 11px; font-size: 0.78rem;
+    display: none; z-index: 3; min-width: 150px; }
+  .tip .t { color: var(--muted); margin-bottom: 4px; }
+  .tip .row { display: flex; align-items: center; gap: 6px; margin: 1px 0; color: var(--ink-2); }
+  .tip .row b { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .tip .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .tblwrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 7px 14px; white-space: nowrap; }
+  thead th { color: var(--muted); font-weight: 600; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase;
+    border-bottom: 1px solid var(--grid); }
+  tbody td { border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.good { background: var(--wash-good); }
+  td .sw, .note .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; }
+  .ok { color: var(--good); font-weight: 650; }
+  .no { color: var(--bad); font-weight: 650; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; padding: 2px 8px;
+    border: 1px solid var(--ring); border-radius: 999px; color: var(--ink-2); margin: 0 6px 4px 0; }
+  .fine { color: var(--muted); font-size: 0.78rem; margin-top: 8px; }
+  .explain { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0 6px; }
+  @media (max-width: 860px) { .explain { grid-template-columns: 1fr; } }
+  .explain .card h3 { font-size: 0.95rem; font-weight: 650; color: var(--ink); margin: 2px 0 8px; }
+  .explain p { font-size: 0.88rem; color: var(--ink-2); margin: 0 0 8px; max-width: 62ch; }
+  .explain ul { font-size: 0.88rem; color: var(--ink-2); margin: 0; padding-left: 18px; }
+  .explain li { margin: 3px 0; }
+  .explain b { color: var(--ink); font-weight: 600; }
+  .hm { display: grid; grid-template-columns: 28px repeat(24, 1fr); gap: 2px; margin-top: 4px; }
+  .hm .lab { font-size: 0.66rem; color: var(--muted); align-self: center; }
+  .hm .cl { font-size: 0.6rem; color: var(--muted); text-align: center; }
+  .hm .cell { aspect-ratio: 1 / 1.15; border-radius: 3px; background: transparent; border: 1px solid var(--grid);
+    display: flex; align-items: center; justify-content: center; font-size: 0.62rem; font-variant-numeric: tabular-nums; }
+  .hm .cell.f { border-color: transparent; }
+  h2.top { font-size: 1.08rem; margin: 26px 0 8px; }
+  svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+  svg .dl { font-size: 11px; font-weight: 600; fill: var(--ink-2); }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <h1>스팟 배치점수 × 가격 대시보드</h1>
+    <p class="sub" id="sub"></p>
+    <div class="toolbar">
+      <div class="ranges" id="ranges" role="group" aria-label="기간 선택"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </header>
+  <div class="tiles" id="tiles"></div>
+  <h2 class="top">가성비 랭킹 <span class="span" style="font-weight:400;font-size:0.82rem;color:var(--muted)">— 현재 점수·가격 종합 (지수 = 점수 ÷ 가격 × 10)</span></h2>
+  <div class="tblwrap" id="ranking"></div>
+  <div class="explain">
+    <div class="card">
+      <h3>스팟 인스턴스란?</h3>
+      <p>AWS의 <b>유휴 EC2 용량을 온디맨드 대비 최대 90% 할인</b>된 시세로 빌리는 구매 방식입니다.
+      대신 AWS가 용량을 회수해야 하면 <b>2분 전 통지 후 인스턴스가 중단</b>될 수 있고,
+      수요가 몰리면 애초에 확보 자체가 안 되기도 합니다.</p>
+      <ul>
+        <li>스팟 시세는 AZ 단위 수급에 따라 수시로 변동 — 같은 리전이라도 AZ별 가격이 다릅니다.</li>
+        <li>GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다.</li>
+        <li>token-forge는 100% 스팟 + capacity-optimized 배분 + 중단 시 자동 재확보(ASG)로 운영합니다.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>배치점수(Spot Placement Score)란?</h3>
+      <p>AWS가 <b>"이 스팟 요청이 향후 몇 시간 내 성공할 가능성"</b>을 1~10으로 알려주는 공식 선행 지표입니다
+      (<code>GetSpotPlacementScores</code> API). 리전 단위와 AZ 단위로 각각 조회할 수 있고,
+      이 대시보드는 수집기가 <b>1시간마다 기록한 값</b>입니다.</p>
+      <ul>
+        <li><b>9~10</b> 매우 높음 · <b>4~8</b> 시도할 만함 · <b>1~3</b> 확보 난항 예상.</li>
+        <li>보장이 아닌 확률 신호 — 점수 9여도 실패할 수 있고, 반대도 가능합니다.</li>
+        <li>단일 인스턴스 타입으로 조회하면 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다.</li>
+        <li>활용법: 점수가 높은 리전·AZ·시간대를 골라 기동(<code>-c azs=</code>)하면 확보 확률이 올라갑니다.</li>
+      </ul>
+    </div>
+  </div>
+  <div id="sections"></div>
+  <p class="fine">배치점수는 1~10 (높을수록 확보 가능성↑). 점수 수집은 2026-08-06 시작. 14일 이전 데이터는 6시간 버킷(점수=최대, 가격=최소)으로 요약 저장.
+  점수 차트의 겹치는 선은 판별용 ±2px 미세 오프셋 적용. 히트맵은 전체 수집 기간의 KST 요일×시간대 평균 점수.</p>
+</div>
+
+<script>
+(async () => {
+try {
+const DATA = await (await fetch('./data.json?t=' + Math.floor(Date.now()/60000), {cache:'no-store'})).json();
+const REG = {
+  'ap-northeast-1': { name: '도쿄', color: 'var(--s-apne1)' },
+  'ap-northeast-2': { name: '서울', color: 'var(--s-apne2)' },
+  'us-east-1':      { name: '버지니아 us-east-1', color: 'var(--s-use1)' },
+  'us-east-2':      { name: '오하이오 us-east-2', color: 'var(--s-use2)' },
+  'us-west-2':      { name: '오레곤 us-west-2',   color: 'var(--s-usw2)' },
+};
+const ORDER = Object.keys(REG);
+const TYPE_META = {
+  'p5.48xlarge':  { note: '8×H100 · int4/bf16 프로파일' },
+  'g6e.48xlarge': { note: '8×L40S · int4-g6e 프로파일' },
+  'g6e.24xlarge': { note: '4×L40S · GlobalPruned INT4 후보 · 8/7부터 수집' },
+};
+const AZ_COLORS = ['var(--s-apne1)', 'var(--s-apne2)', 'var(--s-use1)', 'var(--s-use2)'];
+const SEQ = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
+const RANGES = [ { d: 1, label: '24시간' }, { d: 7, label: '7일' }, { d: 30, label: '30일' }, { d: 90, label: '90일' } ];
+let curDays = 7;
+const selRegion = {};   // type -> region (AZ 타임라인·히트맵용)
+const kst = ts => new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', hour12: false });
+const kstDay = ts => new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' });
+const shortName = r => REG[r].name.split(' ')[0];
+const last = a => a && a.length ? a[a.length - 1] : null;
+
+document.getElementById('sub').textContent =
+  `token-forge 수집기 · 생성 ${DATA.generated} · KST 표기 · 가격은 리전 내 최저 AZ 스팟가($/h)`;
+document.getElementById('legend').innerHTML = ORDER.map(r =>
+  `<span class="chip"><span class="sw" style="background:${REG[r].color}"></span>${REG[r].name}</span>`).join('');
+
+// ---- 랭킹·타일 (데이터에서 자동 계산) ----
+function rankingRows() {
+  const rows = [];
+  for (const type of DATA.types) {
+    for (const r of ORDER) {
+      const s = DATA.scores[type]?.[r]; if (!s || !s.length) continue;
+      const cut = Date.now() - 2 * 864e5;
+      const recent = s.filter(p => Date.parse(p[0]) >= cut).map(p => p[1]);
+      const price = last(DATA.prices[type]?.[r])?.[1];
+      const score = last(s)[1];
+      rows.push({ type, region: r, score, avg48: recent.length ? Math.round(recent.reduce((a, b) => a + b) / recent.length * 10) / 10 : null,
+        price, idx: price ? Math.round(score / price * 100) / 10 : null });
+    }
+  }
+  rows.sort((a, b) => (b.score - a.score) || ((a.price ?? 99) - (b.price ?? 99)));
+  return rows;
+}
+const RANKS = rankingRows();
+document.getElementById('ranking').innerHTML =
+  `<table><thead><tr><th>#</th><th>타입</th><th>리전</th><th>현재 점수</th><th>48h 평균</th><th>현재 최저가</th><th>지수</th></tr></thead><tbody>${
+    RANKS.map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td><td>${x.type}</td>
+      <td><span class="sw" style="background:${REG[x.region].color}"></span>${REG[x.region].name}</td>
+      <td>${x.score}</td><td>${x.avg48 ?? '—'}</td><td>${x.price != null ? '$' + x.price.toFixed(2) : '—'}</td>
+      <td>${x.idx != null ? x.idx.toFixed(1) : '—'}</td></tr>`).join('')
+  }</tbody></table>`;
+document.getElementById('tiles').innerHTML = DATA.types.map(type => {
+  const best = RANKS.find(x => x.type === type);
+  if (!best) return `<div class="tile"><div class="k">${type}</div><div class="v">데이터 없음</div></div>`;
+  return `<div class="tile"><div class="k">${type} 최선</div><div class="v">${shortName(best.region)} · 점수 ${best.score}</div>
+    <div class="d">48h 평균 ${best.avg48 ?? '—'} · $${best.price?.toFixed(2)}/h</div></div>`;
+}).join('');
+
+// ---- 공용 시계열 차트 ----
+function clampSeries(arr, cutoff) {
+  if (!arr || !arr.length) return [];
+  const out = []; let carry = null;
+  for (const [ts, v] of arr) {
+    if (Date.parse(ts) < cutoff) carry = v; else out.push([ts, v]);
+  }
+  if (carry !== null) out.unshift([new Date(cutoff).toISOString(), carry]);
+  return out;
+}
+function drawChart(card, seriesMap, opts) {
+  card.querySelectorAll('svg, .tip, .empty').forEach(e => e.remove());
+  const W = 560, H = 250, m = { t: 12, r: 118, b: 26, l: opts.yMax === 10 ? 26 : 40 };
+  const keys = opts.keys.filter(k => seriesMap[k] && seriesMap[k].length > 1);
+  if (!keys.length) { card.insertAdjacentHTML('beforeend', '<div class="empty">선택한 기간에 데이터가 없습니다</div>'); return; }
+  let tMin = Infinity, tMax = -Infinity, vMax = 0;
+  keys.forEach(k => seriesMap[k].forEach(([ts, v]) => {
+    const t = Date.parse(ts); tMin = Math.min(tMin, t); tMax = Math.max(tMax, t); vMax = Math.max(vMax, v);
+  }));
+  const yMax = opts.yMax || Math.max(1, Math.ceil(vMax * 1.15));
+  const x = t => m.l + (t - tMin) / (tMax - tMin) * (W - m.l - m.r);
+  const y = v => H - m.b - v / yMax * (H - m.t - m.b);
+  const xfmt = (tMax - tMin) > 3 * 864e5 ? kstDay : kst;
+  let g = '';
+  const yTicks = opts.yMax === 10 ? [0, 2, 4, 6, 8, 10] : Array.from({ length: 5 }, (_, i) => Math.round(yMax / 4 * i * 100) / 100);
+  yTicks.forEach(v => { g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
+    <text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${opts.yFmt(v)}</text>`; });
+  for (let i = 0; i <= 4; i++) { const t = tMin + (tMax - tMin) * i / 4;
+    g += `<text x="${x(t)}" y="${H - 8}" text-anchor="middle">${xfmt(t)}</text>`; }
+  g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)" stroke-width="1"/>`;
+  keys.forEach((k, i) => {
+    const off = opts.step ? (i - (keys.length - 1) / 2) * 2 : 0;
+    const pts = seriesMap[k].map(([ts, v]) => [x(Date.parse(ts)), y(v) + off]);
+    let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let j = 1; j < pts.length; j++) {
+      d += opts.step ? `H${pts[j][0].toFixed(1)}V${pts[j][1].toFixed(1)}` : `L${pts[j][0].toFixed(1)},${pts[j][1].toFixed(1)}`;
+    }
+    const lp = pts[pts.length - 1], lv = seriesMap[k][seriesMap[k].length - 1][1];
+    g += `<path d="${d}" fill="none" stroke="${opts.colorOf(k)}" stroke-width="2" stroke-linejoin="round"/>`;
+    g += `<circle cx="${lp[0]}" cy="${lp[1]}" r="3.5" fill="${opts.colorOf(k)}" stroke="var(--surface)" stroke-width="2"/>`;
+    g += `<text class="dl" x="${lp[0] + 8}" y="${lp[1] + 4 + (opts.step ? off * 2.2 : 0)}">${opts.labelOf(k)} ${opts.yFmt(lv)}</text>`;
+  });
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = g + `<line class="xh" y1="${m.t}" y2="${H - m.b}" stroke="var(--axis)" stroke-width="1" visibility="hidden"/>`;
+  card.appendChild(svg);
+  const tip = document.createElement('div'); tip.className = 'tip'; card.appendChild(tip);
+  const xh = svg.querySelector('.xh');
+  svg.addEventListener('mousemove', e => {
+    const rect = svg.getBoundingClientRect();
+    const t = tMin + (Math.min(Math.max((e.clientX - rect.left) / rect.width * W, m.l), W - m.r) - m.l) / (W - m.l - m.r) * (tMax - tMin);
+    xh.setAttribute('x1', x(t)); xh.setAttribute('x2', x(t)); xh.setAttribute('visibility', 'visible');
+    let rows = '';
+    keys.forEach(k => {
+      const s = seriesMap[k]; let best = s[0];
+      for (const p of s) { if (Math.abs(Date.parse(p[0]) - t) < Math.abs(Date.parse(best[0]) - t)) best = p; }
+      rows += `<div class="row"><span class="sw" style="background:${opts.colorOf(k)}"></span>${opts.labelOf(k)}<b>${opts.yFmt(best[1])}</b></div>`;
+    });
+    tip.innerHTML = `<div class="t">${kst(t)} KST</div>` + rows;
+    tip.style.display = 'block';
+    const cr = card.getBoundingClientRect();
+    let lx = e.clientX - cr.left + 14;
+    if (lx + 170 > cr.width) lx = e.clientX - cr.left - 184;
+    tip.style.left = lx + 'px'; tip.style.top = (e.clientY - cr.top - 10) + 'px';
+  });
+  svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; xh.setAttribute('visibility', 'hidden'); });
+}
+
+// ---- 요일×시간 히트맵 (KST, 전체 기간 평균) ----
+function renderHeatmap(el, type, region) {
+  const s = DATA.scores[type]?.[region];
+  if (!s || !s.length) { el.innerHTML = '<div class="empty">이 리전은 데이터가 없습니다</div>'; return; }
+  const agg = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => []));
+  for (const [ts, v] of s) {
+    const d = new Date(Date.parse(ts) + 9 * 3600e3);   // KST
+    agg[d.getUTCDay()][d.getUTCHours()].push(v);
+  }
+  const dows = ['일', '월', '화', '수', '목', '금', '토'];
+  const order = [1, 2, 3, 4, 5, 6, 0];   // 월~일
+  let h = '<div class="hm"><div></div>';
+  for (let c = 0; c < 24; c++) h += `<div class="cl">${c % 6 === 0 ? c : ''}</div>`;
+  for (const d of order) {
+    h += `<div class="lab">${dows[d]}</div>`;
+    for (let c = 0; c < 24; c++) {
+      const vs = agg[d][c];
+      if (!vs.length) { h += '<div class="cell" title="데이터 없음"></div>'; continue; }
+      const avg = vs.reduce((a, b) => a + b) / vs.length;
+      const idx = Math.min(6, Math.max(0, Math.floor((avg - 1) / 9 * 7)));
+      const fg = idx >= 3 ? '#ffffff' : '#0b0b0b';
+      h += `<div class="cell f" style="background:${SEQ[idx]};color:${fg}" title="${dows[d]} ${c}시 평균 ${avg.toFixed(1)} (표본 ${vs.length})">${Math.round(avg)}</div>`;
+    }
+  }
+  el.innerHTML = h + '</div>';
+}
+
+// ---- 타입 섹션 ----
+function renderTypeExtras(type) {
+  const region = selRegion[type];
+  const sec = document.querySelector(`section[data-type="${CSS.escape(type)}"]`);
+  sec.querySelectorAll('.chips button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.r === region)));
+  const cutoff = Date.now() - curDays * 864e5;
+  const azCard = sec.querySelector('.az-card');
+  const azids = Object.keys(DATA.azScores[type] || {}).filter(a => DATA.azMeta[a]?.region === region).sort();
+  const seriesMap = {};
+  azids.forEach(a => { seriesMap[a] = clampSeries(DATA.azScores[type][a], cutoff); });
+  azCard.querySelector('h3').innerHTML = `AZ별 배치점수 — ${shortName(region)} <span class="span">기간 필터 적용</span>`;
+  drawChart(azCard, seriesMap, { keys: azids, yMax: 10, step: true, yFmt: v => String(v),
+    colorOf: a => AZ_COLORS[azids.indexOf(a) % AZ_COLORS.length], labelOf: a => a.split('-').pop() });
+  const hmCard = sec.querySelector('.hm-card');
+  hmCard.querySelector('h3').innerHTML = `요일×시간 히트맵 (KST) — ${shortName(region)} <span class="span">전체 기간 평균 점수</span>`;
+  renderHeatmap(hmCard.querySelector('.hm-body'), type, region);
+}
+function renderAll() {
+  const cutoff = Date.now() - curDays * 864e5;
+  const secRoot = document.getElementById('sections');
+  secRoot.innerHTML = '';
+  DATA.types.forEach(type => {
+    if (!(type in selRegion)) selRegion[type] = 'ap-northeast-1';
+    const scores = {}, prices = {};
+    ORDER.forEach(r => {
+      scores[r] = clampSeries(DATA.scores[type]?.[r], cutoff);
+      prices[r] = clampSeries(DATA.prices[type]?.[r], cutoff);
+    });
+    const noPool = (DATA.noPool?.[type] || []);
+    const sec = document.createElement('section'); sec.className = 'type'; sec.dataset.type = type;
+    sec.innerHTML = `<h2>${type}</h2>
+      <p class="note">${TYPE_META[type].note}${noPool.length
+        ? ` · <b>스팟 풀 미개설: ${noPool.map(shortName).join(', ')}</b> — 데이터 누락이 아니라 해당 리전에 이 타입의 스팟 시장 자체가 없음(가격 기록 90일 0건, 배치점수 API 응답 제외)`
+        : ''}</p>`;
+    const grid1 = document.createElement('div'); grid1.className = 'charts';
+    const c1 = document.createElement('div'); c1.className = 'card'; c1.innerHTML = '<h3>배치점수 (1~10)</h3>';
+    const c2 = document.createElement('div'); c2.className = 'card'; c2.innerHTML = '<h3>스팟 최저가 ($/h, 리전 내 최저 AZ)</h3>';
+    grid1.appendChild(c1); grid1.appendChild(c2); sec.appendChild(grid1);
+    const chips = document.createElement('div'); chips.className = 'chips'; chips.style.marginBottom = '10px';
+    chips.innerHTML = ORDER.map(r => `<button type="button" data-r="${r}" aria-pressed="false">${shortName(r)}</button>`).join('');
+    sec.appendChild(chips);
+    const grid2 = document.createElement('div'); grid2.className = 'charts';
+    const az = document.createElement('div'); az.className = 'card az-card'; az.innerHTML = '<h3>AZ별 배치점수</h3>';
+    const hm = document.createElement('div'); hm.className = 'card hm-card'; hm.innerHTML = '<h3>요일×시간 히트맵</h3><div class="hm-body"></div>';
+    grid2.appendChild(az); grid2.appendChild(hm); sec.appendChild(grid2);
+    const rowsData = Object.entries(DATA.azScores[type] || {}).map(([azid, series]) => {
+      const meta = DATA.azMeta[azid] || { region: '?', azname: '?' };
+      const v = clampSeries(series, cutoff).map(p => p[1]);
+      if (!v.length) return null;
+      const price = DATA.azPrice[type]?.[meta.azname];
+      return { azid, region: meta.region, azname: meta.azname, latest: v[v.length - 1],
+        avg: Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10, max: Math.max(...v), price };
+    }).filter(Boolean).sort((a, b) => b.latest - a.latest || b.avg - a.avg);
+    const tw = document.createElement('div'); tw.className = 'tblwrap'; tw.style.marginTop = '14px';
+    tw.innerHTML = `<table><thead><tr><th>AZ ID</th><th>리전</th><th>AZ 이름</th><th>최근 점수</th><th>기간 평균</th><th>기간 최대</th><th>현재 스팟가</th></tr></thead><tbody>${
+      rowsData.map(a => { const r = REG[a.region] || { name: a.region, color: 'var(--muted)' };
+        return `<tr${a.latest >= 3 ? ' class="good"' : ''}><td><span class="sw" style="background:${r.color}"></span>${a.azid}</td>
+        <td>${r.name}</td><td>${a.azname}</td>
+        <td>${a.latest}</td><td>${a.avg}</td><td>${a.max}</td>
+        <td>${a.price != null ? '$' + a.price.toFixed(2) : '—'}</td></tr>`; }).join('')
+    }</tbody></table>`;
+    sec.appendChild(tw);
+    secRoot.appendChild(sec);
+    drawChart(c1, scores, { keys: ORDER, yMax: 10, step: true, yFmt: v => String(v), colorOf: r => REG[r].color, labelOf: shortName });
+    drawChart(c2, prices, { keys: ORDER, step: false, yFmt: v => '$' + Number(v).toFixed(v >= 10 ? 1 : 2), colorOf: r => REG[r].color, labelOf: shortName });
+    chips.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      selRegion[type] = b.dataset.r;
+      renderTypeExtras(type);
+    });
+    renderTypeExtras(type);
+  });
+}
+const rangeBox = document.getElementById('ranges');
+rangeBox.innerHTML = RANGES.map(r =>
+  `<button type="button" data-d="${r.d}" aria-pressed="${r.d === curDays}">${r.label}</button>`).join('');
+rangeBox.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  curDays = Number(b.dataset.d);
+  rangeBox.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  renderAll();
+});
+renderAll();
+
+} catch (e) { document.getElementById('sections').innerHTML = '<p class="empty">data.json 로드 실패: ' + e + ' — 첫 게시 전이거나 네트워크 문제입니다.</p>'; console.error(e); }
+})();
+</script>
+</body>
+</html>
