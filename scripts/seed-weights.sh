@@ -47,6 +47,7 @@ cat > "${UD}" <<EOF
 #!/bin/bash
 set -e
 # 성공/실패와 무관하게 반드시 자기 종료 (스팟 one-time + terminate 정책 → 인스턴스 소멸)
+# 단일 인용 의도적 — trap은 시그널 시점 확장이 정석 (shellcheck SC2064)
 trap 'shutdown -h now' EXIT
 exec > /var/log/seed.log 2>&1
 export PATH="\${PATH}:/usr/local/bin"
