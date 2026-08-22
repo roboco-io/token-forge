@@ -1,18 +1,26 @@
 # token-forge
 
-Hugging Face 오픈소스 LLM을 AWS **스팟 인스턴스 기본**으로 서빙하는 AWS CDK 템플릿.
-초기 타겟: [upstage/Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B).
+Hugging Face 오픈소스 LLM을 AWS **100% 스팟 인스턴스**로 저렴하게 서빙하는 AWS CDK 템플릿
+— 그리고 어느 리전에서 GPU 스팟을 확보할 수 있는지 알려주는 **공개 스팟 인텔리전스 피드**.
+
+- 초기 타겟 모델: [upstage/Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B)
+  (250B MoE) — **p5.48xlarge(8×H100)와 g6e.48xlarge(8×L40S) 스팟에서 실서빙 검증 완료**
+- 스팟의 어려움(리전별 가용성 변동, 인터럽션, 콜드부팅)을 CDK 스택 + 운영 스크립트 +
+  배치점수 수집기로 정면 대응하는 것이 이 프로젝트의 주제
 
 > 설계 문서: [docs/superpowers/specs/2026-07-23-token-forge-design.md](docs/superpowers/specs/2026-07-23-token-forge-design.md)
 
 ## 아키텍처
 
 ```
-사용자 ──HTTP──> ALB ──> ASG(min1/max1, p5.48xlarge Spot, 멀티 AZ)
+사용자 ──HTTP──> ALB ──> ASG(min1/max1, 100% Spot·capacity-optimized, 멀티 AZ·다중 타입 후보)
                              └─ EC2: DLAMI + Docker(upstage/vllm-solar-open2)
                                   ├─ 부팅: S3 가중치 캐시 → 없으면 HF 다운로드 후 S3 시딩
                                   └─ vLLM OpenAI 호환 서버 (--api-key = Secrets Manager)
 ```
+
+모델·인스턴스 조합은 `models/<model>.yaml`의 프로파일로 선택한다
+(예: `int4` = p5.48xlarge, `int4-g6e` = g6e.48xlarge, `bf16` = p5 BF16).
 
 ## 스팟 인텔리전스 공개 대시보드·데이터 피드
 
@@ -27,19 +35,25 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
 
 ## 사전 조건
 
-- **p5 스팟 vCPU 쿼터 192개** — 대부분 계정 기본 0. Service Quotas에서
-  "All P Spot Instance Requests"(L-7212CCBC) 상향 신청 필요. 신규 계정은 부분 승인이
-  흔하므로 **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)** 의 어필 문안 작성법 참고.
-- 비용 참고: p5.48xlarge 스팟 약 **$30~50/hr** (리전·시점 변동). 사용 후 `cdk destroy` 권장.
+- **스팟 vCPU 쿼터 192개** (48xlarge 1대 기준) — 대부분 계정 기본 0. Service Quotas에서
+  p5는 "All P Spot Instance Requests"(L-7212CCBC), g6e는 "All G and VT Spot Instance
+  Requests"(L-3819A6DF) 상향 신청 필요. 신규 계정은 부분 승인이 흔하므로
+  **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)** 의 어필 문안 작성법 참고.
+- 비용 참고 (스팟, 리전·시점 변동): p5.48xlarge 약 **$30~50/hr**, g6e.48xlarge 약
+  **$10~13/hr**. 사용 후 `cdk destroy` 권장.
 - Node 20+, AWS CDK CLI (`npm i -g aws-cdk`), 부트스트랩된 계정(`cdk bootstrap`).
 
 ## 배포
 
 ```bash
 npm install
-cdk deploy -c model=solar-open2-250b -c profile=int4 -c region=us-east-2
-# 옵션: -c profile=bf16  -c alertEmail=you@example.com
+cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-1
+# 프로파일: int4(p5) / int4-g6e(g6e, 저비용) / bf16(p5)
+# 옵션: -c azs=... -c minCapacity=0 -c idleMinutes=60 -c alertEmail=you@example.com
 ```
+
+어느 리전·시간대에 스팟이 잘 잡히는지는 위의 **공개 대시보드**를 먼저 확인하면
+실패 루프를 크게 줄일 수 있다.
 
 첫 부팅은 HF 다운로드 + S3 시딩으로 오래 걸린다(INT4 ~150GB).
 이후 재프로비저닝은 S3 캐시에서 s5cmd 로드로 단축(목표 ~15분).
@@ -63,7 +77,8 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 
 | 증상 | 확인 |
 |---|---|
-| 30분 넘게 InService 0 (SNS 알람) | p5 스팟 쿼터/용량 부족. Service Quotas·다른 리전 검토 |
+| 30분 넘게 InService 0 (SNS 알람) | 스팟 쿼터/용량 부족. Service Quotas·공개 대시보드로 다른 리전 검토 |
+| g6e에서 vLLM이 CUDA 그래프 캡처 중 크래시 | INT4 MoE + TP=8은 `--enable-expert-parallel` 필수 (`int4-g6e` 프로파일에 포함됨) |
 | 인스턴스가 계속 교체됨 | SSM 세션 접속 → `cat /var/log/token-forge-boot.log`, `docker logs vllm` (OOM 등). vLLM 컨테이너 로그는 CloudWatch Logs 그룹 `/token-forge/vllm`에서도 확인 가능 (인스턴스 종료 후에도 보존) |
 | 스팟 중단 알림 수신 | 정상 — ASG가 자동 재프로비저닝. S3 캐시로 ~15분 내 복구 |
 | HF 다운로드 3회 실패 | 로그 확인 후 인스턴스 종료(ASG 교체) 또는 네트워크 점검 |
@@ -83,3 +98,11 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 
 오토스케일링 없음(min1/max1), 웹 UI 없음, HTTPS는 도메인+ACM 필요로 향후 과제
 (현재 HTTP + API 키 — 민감 데이터에는 사용 금지).
+
+## 프로젝트 방향
+
+지금의 token-forge는 "한 리전에 한 스택"이다. 다음 단계로 **여러 리전의 스팟 레플리카를
+하나의 엔드포인트로 묶는 멀티리전 오케스트레이션**(배치점수 기반 리전 선택, 선제적
+페일오버, 유휴 스케일-투-제로)을 검토하고 있다 — 공개 대시보드·데이터 피드는 그 첫 단계다.
+이런 운영을 직접 하고 싶지 않다면(매니지드 형태에 관심이 있다면) 이슈로 의견을 남겨 달라.
+사용 사례가 로드맵을 결정한다.
