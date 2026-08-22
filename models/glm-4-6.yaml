@@ -1,0 +1,15 @@
+# zai-org/GLM-4.6 — MoE 357B (활성 32B), 200K 컨텍스트, 코딩·에이전트 특화
+# 메인라인 vLLM으로 서빙 (전용 포크 불필요) — 모델 불가지론 검증의 첫 케이스
+model: glm-4-6
+vllmImage: vllm/vllm-openai:v0.27.1
+profiles:
+  fp8:
+    # 공식 FP8 양자화 (~355GB) — 8×H100 640GB에서 KV 캐시 여유 확보
+    weightsRepo: zai-org/GLM-4.6-FP8
+    instanceType: p5.48xlarge
+    vllmFlags: >-
+      --tensor-parallel-size 8 --enable-auto-tool-choice
+      --tool-call-parser glm45 --reasoning-parser glm45
+      --enable-prefix-caching
+    # 모델 최대 202752 중 128K로 시작 (바이브 코딩 검증에 충분, 여유 확인 후 상향)
+    maxModelLen: 131072
