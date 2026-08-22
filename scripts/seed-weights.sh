@@ -14,8 +14,20 @@ ITYPE="${3:-c6id.4xlarge}"
 
 outputs=$(aws cloudformation describe-stacks --stack-name "${STACK}" --region "${REGION}" \
   --query 'Stacks[0].Outputs' --output json)
-BUCKET=$(echo "${outputs}" | python3 -c "import json,sys; print(next(o['OutputValue'] for o in json.load(sys.stdin) if o['OutputKey']=='WeightsBucketName'))")
-REPO=$(echo "${outputs}" | python3 -c "import json,sys; print(next(o['OutputValue'] for o in json.load(sys.stdin) if o['OutputKey']=='WeightsRepo'))")
+get_output() {
+  echo "${outputs}" | python3 -c "import json,sys; outs={o['OutputKey']:o['OutputValue'] for o in json.load(sys.stdin)}; print(outs.get('$1',''))"
+}
+BUCKET=$(get_output WeightsBucketName)
+REPO=$(get_output WeightsRepo)
+if [ -z "${BUCKET}" ] || [ -z "${REPO}" ]; then
+  echo "ERROR: 스택에 WeightsBucketName/WeightsRepo 출력이 없습니다 — 최신 코드로 cdk deploy 후 재시도하세요" >&2
+  exit 1
+fi
+# user-data에 값이 그대로 삽입되므로 셸 인젝션 방지를 위해 형식을 강제한다
+if ! [[ "${REPO}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+  echo "ERROR: weightsRepo 값이 HF 리포 형식이 아닙니다: ${REPO}" >&2
+  exit 1
+fi
 MODEL_KEY="${REPO//\//_}"
 
 if aws s3api head-object --bucket "${BUCKET}" --key "${MODEL_KEY}/.complete" --region "${REGION}" >/dev/null 2>&1; then
@@ -78,7 +90,15 @@ for _ in $(seq 1 360); do
   state=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${IID}" \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)
   if [ "${state}" = "terminated" ]; then
-    echo "ERROR: 시더가 종료됐지만 .complete 마커가 없음 — 콘솔에서 /var/log/seed.log 확인 필요" >&2
+    # 스팟 인터럽션(용량 회수)과 실제 실패를 구분해 안내한다
+    reason=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${IID}" \
+      --query 'Reservations[0].Instances[0].StateReason.Message' --output text 2>/dev/null || echo unknown)
+    if echo "${reason}" | grep -qi 'spot'; then
+      echo "WARN: 시더가 스팟 인터럽션으로 회수됨(${reason}). 실패가 아니라 용량 부족 —" >&2
+      echo "      재실행하면 처음부터 다시 시딩합니다: scripts/seed-weights.sh ${STACK} ${REGION} <온디맨드는 3번째 인자에 타입 지정>" >&2
+    else
+      echo "ERROR: 시더가 종료됐지만 .complete 마커가 없음 (사유: ${reason}) — 시딩 스크립트 실패 가능성, 콘솔에서 /var/log/seed.log 확인" >&2
+    fi
     exit 1
   fi
   sleep 30
