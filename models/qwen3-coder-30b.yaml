@@ -8,7 +8,10 @@ profiles:
     # 12xlarge/24xlarge 모두 4 GPU — 다중 후보로 스팟 확보 확률을 높인다
     weightsRepo: Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
     instanceType: g6e.12xlarge,g6e.24xlarge
+    # --enable-expert-parallel 필수: FP8 블록 양자화(block_n=128) MoE에서 TP=4가
+    # intermediate(768)를 192로 쪼개 블록 단위와 어긋남 → 워커 초기화 크래시
+    # (Solar int4-g6e의 EP 교훈과 동일 계열, 2026-08-22 서울 실측)
     vllmFlags: >-
-      --tensor-parallel-size 4 --enable-auto-tool-choice
+      --tensor-parallel-size 4 --enable-expert-parallel --enable-auto-tool-choice
       --tool-call-parser qwen3_coder --enable-prefix-caching
     maxModelLen: 131072
