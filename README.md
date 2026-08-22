@@ -14,6 +14,17 @@ Hugging Face 오픈소스 LLM을 AWS **스팟 인스턴스 기본**으로 서빙
                                   └─ vLLM OpenAI 호환 서버 (--api-key = Secrets Manager)
 ```
 
+## 스팟 인텔리전스 공개 대시보드·데이터 피드
+
+roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가격 공개 서비스**:
+
+- **대시보드**: https://d16jdvzof4zpo7.cloudfront.net — p5·g6e 주요 타입의 리전/AZ별
+  배치점수 추이, 스팟 가격, 요일×시간 히트맵, 가성비 랭킹 (1시간 주기 갱신, 90일 이력)
+- **데이터 피드**: https://d16jdvzof4zpo7.cloudfront.net/data.json — CORS 전면 허용.
+  스키마·이용법은 [docs/spot-feed.md](docs/spot-feed.md)
+
+같은 수집기를 자기 계정에 직접 띄우려면 `cdk deploy -c collector=1` (별도 상시 스택).
+
 ## 사전 조건
 
 - **p5 스팟 vCPU 쿼터 192개** — 대부분 계정 기본 0. Service Quotas에서
