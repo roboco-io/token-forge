@@ -58,6 +58,17 @@ cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-
 첫 부팅은 HF 다운로드 + S3 시딩으로 오래 걸린다(INT4 ~150GB).
 이후 재프로비저닝은 S3 캐시에서 s5cmd 로드로 단축(목표 ~15분).
 
+### 새 모델 온보딩 — 가중치 선시딩 권장 (GPU 비용 절약)
+
+첫 다운로드를 GPU 인스턴스에서 하면 다운로드 시간만큼 GPU 요금을 낸다
+(실측: GLM-4.6 337GB ≈ 50분 × p5 스팟 $22/h ≈ $18). 저가 CPU 스팟으로 먼저 시딩하자:
+
+```bash
+cdk deploy -c model=<m> -c profile=<p> -c region=<r> -c minCapacity=0  # 스택만 생성, GPU 0대
+scripts/seed-weights.sh <stack-name> <region>   # c6id 스팟(~$0.2/h)이 HF→S3 시딩 후 자동 종료
+scripts/start.sh <stack-name> <region>          # GPU는 S3 캐시로 ~15분 내 서비스
+```
+
 ## 사용
 
 ```bash
