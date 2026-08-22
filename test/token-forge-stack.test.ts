@@ -153,7 +153,7 @@ describe('compute', () => {
     }
     expect(userData).toContain('nota-ai/Solar-Open2-250B-Nota-INT4');
     expect(userData).toContain('--tensor-parallel-size 8');
-    expect(userData).toContain('upstage/vllm-solar-open2:v0.22.0-solar-open2');
+    expect(userData).toContain('upstage/vllm-solar-open2:1.0.0');
   });
 
   test('ASG is fixed min1/max1 with 20min ELB grace period', () => {
@@ -161,7 +161,7 @@ describe('compute', () => {
       MinSize: '1',
       MaxSize: '1',
       HealthCheckType: 'ELB',
-      HealthCheckGracePeriod: 1200,
+      HealthCheckGracePeriod: 3600,
     });
   });
 

@@ -1,10 +1,12 @@
 # upstage/Solar-Open2-250B — Hybrid-Attention MoE 250B (활성 15B)
 # vLLM은 Upstage 포크 필수 (업스트림 미병합, 2026-07 기준)
+# 이미지 태그는 Docker Hub 실존 태그만 사용 — v0.22.0-solar-open2는 존재하지 않아
+# 2026-08-17 도쿄 실배포에서 docker pull 실패로 부팅 루프를 유발했음 (1.0.0/latest만 존재)
 model: solar-open2-250b
-vllmImage: upstage/vllm-solar-open2:v0.22.0-solar-open2
+vllmImage: upstage/vllm-solar-open2:1.0.0
 profiles:
   int4:
-    # 공식 양자화 (llm-compressor 포맷, ~150GB) — 기본 프로파일
+    # 공식 양자화 (AutoRound W4A16, GPTQ 호환 포맷, 실측 142.9GB) — 기본 프로파일
     weightsRepo: nota-ai/Solar-Open2-250B-Nota-INT4
     instanceType: p5.48xlarge
     vllmFlags: >-
@@ -12,6 +14,18 @@ profiles:
       --reasoning-parser solar_open2 --tool-call-parser solar_open2
       --enable-auto-tool-choice
     # 1M 풀 컨텍스트는 KV 캐시 메모리상 불가 — 128K 캡
+    maxModelLen: 131072
+  int4-g6e:
+    # int4를 g6e.48xlarge(8×L40S 384GB)에서 서빙 — GPTQ-Marlin은 Ada(SM8.9) 지원.
+    # --enable-expert-parallel 필수: EP 없이 TP=8만 쓰면 expert 가중치가 K축으로 분할되어
+    # INT4 MoE 커널 제약(BLOCK_SIZE_K // group_size ∈ [1,2,4,8]) 위반으로 CUDA 그래프
+    # 캡처 단계에서 크래시함 (2026-08-17 도쿄 실배포 실측).
+    weightsRepo: nota-ai/Solar-Open2-250B-Nota-INT4
+    instanceType: g6e.48xlarge
+    vllmFlags: >-
+      --tensor-parallel-size 8 --enable-expert-parallel
+      --reasoning-parser solar_open2 --tool-call-parser solar_open2
+      --enable-auto-tool-choice
     maxModelLen: 131072
   bf16:
     # 원본 가중치 (~501GB, safetensors 94개)

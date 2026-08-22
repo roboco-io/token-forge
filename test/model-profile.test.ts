@@ -76,7 +76,7 @@ describe('solar-open2-250b profile', () => {
 
   test.each(['int4', 'bf16'])('%s profile is valid', (profile) => {
     const p = loadModelProfile(modelsDir, 'solar-open2-250b', profile);
-    expect(p.vllmImage).toBe('upstage/vllm-solar-open2:v0.22.0-solar-open2');
+    expect(p.vllmImage).toBe('upstage/vllm-solar-open2:1.0.0');
     expect(p.instanceType).toBe('p5.48xlarge');
     expect(p.maxModelLen).toBe(131072);
     for (const flag of REQUIRED_FLAGS) {

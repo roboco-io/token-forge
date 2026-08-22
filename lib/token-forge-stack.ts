@@ -159,7 +159,9 @@ export class TokenForgeStack extends cdk.Stack {
       minCapacity: Number(this.node.tryGetContext('minCapacity') ?? 1),
       maxCapacity: 1, // 스코프: 오토스케일링 없음
       healthChecks: autoscaling.HealthChecks.withAdditionalChecks({
-        gracePeriod: cdk.Duration.minutes(20), // 모델 로드 ~15분 + 여유
+        // 콜드 부팅 실측(g6e.48xlarge, 도쿄): HF 143GB 다운로드+S3 시딩+이미지 풀+8GPU 로드로
+        // 20분을 초과해 ELB 헬스체크가 부팅 중 인스턴스를 강제 교체함(2026-08-17) — 60분으로 확대
+        gracePeriod: cdk.Duration.minutes(60),
         additionalTypes: [autoscaling.AdditionalHealthCheckType.ELB],
       }),
       groupMetrics: [autoscaling.GroupMetrics.all()], // Task 8 알람에 필요
