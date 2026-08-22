@@ -128,7 +128,12 @@ describe('compute', () => {
     });
   });
 
-  test('ASG is 100% spot with capacity-optimized allocation', () => {
+  test('WeightsRepo 출력 존재 (seed-weights.sh가 참조)', () => {
+  const t = makeTemplate();
+  t.hasOutput('WeightsRepo', { Value: 'nota-ai/Solar-Open2-250B-Nota-INT4' });
+});
+
+test('ASG is 100% spot with capacity-optimized allocation', () => {
     template.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', {
       MixedInstancesPolicy: Match.objectLike({
         InstancesDistribution: Match.objectLike({

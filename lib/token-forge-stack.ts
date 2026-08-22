@@ -279,5 +279,7 @@ exports.handler = async () => {
       description: 'Retrieve: aws secretsmanager get-secret-value --secret-id <arn>',
     });
     new cdk.CfnOutput(this, 'WeightsBucketName', { value: weightsBucket.bucketName });
+    // scripts/seed-weights.sh가 시딩 대상 리포를 읽는 용도
+    new cdk.CfnOutput(this, 'WeightsRepo', { value: profile.weightsRepo });
   }
 }
