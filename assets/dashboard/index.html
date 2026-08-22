@@ -82,6 +82,8 @@
   .tip .row b { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
   .tip .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
   .tblwrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; }
+  .ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
+  .ranks .cap { font-size: 0.85rem; font-weight: 650; padding: 9px 14px 0; }
   table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
   th, td { text-align: left; padding: 7px 14px; white-space: nowrap; }
   thead th { color: var(--muted); font-weight: 600; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase;
@@ -126,8 +128,8 @@
     </div>
   </header>
   <div class="tiles" id="tiles"></div>
-  <h2 class="top">가성비 랭킹 <span class="span" style="font-weight:400;font-size:0.82rem;color:var(--muted)">— 현재 점수·가격 종합 (지수 = 점수 ÷ 가격 × 10)</span></h2>
-  <div class="tblwrap" id="ranking"></div>
+  <h2 class="top">리전별 확보 안정성 <span class="span" style="font-weight:400;font-size:0.82rem;color:var(--muted)">— 48시간 평균 배치점수 기준 · P/G는 용도가 달라 타입별 분리 비교 · 가격은 참고</span></h2>
+  <div class="ranks" id="ranking"></div>
   <div class="explain">
     <div class="card">
       <h3>스팟 인스턴스란?</h3>
@@ -190,36 +192,35 @@ document.getElementById('sub').textContent =
 document.getElementById('legend').innerHTML = ORDER.map(r =>
   `<span class="chip"><span class="sw" style="background:${REG[r].color}"></span>${REG[r].name}</span>`).join('');
 
-// ---- 랭킹·타일 (데이터에서 자동 계산) ----
-function rankingRows() {
+// ---- 확보 안정성 순위·타일 (데이터에서 자동 계산) ----
+// 배치점수는 시간 단위로 출렁이므로 48h 평균을 1순위로 — "안정적 확보" 관점의 줄 세우기.
+function rankingRows(type) {
   const rows = [];
-  for (const type of DATA.types) {
-    for (const r of ORDER) {
-      const s = DATA.scores[type]?.[r]; if (!s || !s.length) continue;
-      const cut = Date.now() - 2 * 864e5;
-      const recent = s.filter(p => Date.parse(p[0]) >= cut).map(p => p[1]);
-      const price = last(DATA.prices[type]?.[r])?.[1];
-      const score = last(s)[1];
-      rows.push({ type, region: r, score, avg48: recent.length ? Math.round(recent.reduce((a, b) => a + b) / recent.length * 10) / 10 : null,
-        price, idx: price ? Math.round(score / price * 100) / 10 : null });
-    }
+  for (const r of ORDER) {
+    const s = DATA.scores[type]?.[r]; if (!s || !s.length) continue;
+    const cut = Date.now() - 2 * 864e5;
+    const recent = s.filter(p => Date.parse(p[0]) >= cut).map(p => p[1]);
+    rows.push({ region: r, score: last(s)[1],
+      avg48: recent.length ? Math.round(recent.reduce((a, b) => a + b) / recent.length * 10) / 10 : null,
+      price: last(DATA.prices[type]?.[r])?.[1] });
   }
-  rows.sort((a, b) => (b.score - a.score) || ((a.price ?? 99) - (b.price ?? 99)));
+  rows.sort((a, b) => ((b.avg48 ?? -1) - (a.avg48 ?? -1)) || (b.score - a.score) || ((a.price ?? 99) - (b.price ?? 99)));
   return rows;
 }
-const RANKS = rankingRows();
-document.getElementById('ranking').innerHTML =
-  `<table><thead><tr><th>#</th><th>타입</th><th>리전</th><th>현재 점수</th><th>48h 평균</th><th>현재 최저가</th><th>지수</th></tr></thead><tbody>${
-    RANKS.map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td><td>${x.type}</td>
-      <td><span class="sw" style="background:${REG[x.region].color}"></span>${REG[x.region].name}</td>
-      <td>${x.score}</td><td>${x.avg48 ?? '—'}</td><td>${x.price != null ? '$' + x.price.toFixed(2) : '—'}</td>
-      <td>${x.idx != null ? x.idx.toFixed(1) : '—'}</td></tr>`).join('')
-  }</tbody></table>`;
+const RANKS = Object.fromEntries(DATA.types.map(t => [t, rankingRows(t)]));
+document.getElementById('ranking').innerHTML = DATA.types.map(type =>
+  `<div class="tblwrap"><div class="cap">${type}</div>
+   <table><thead><tr><th>#</th><th>리전</th><th>48h 평균</th><th>현재 점수</th><th>현재 최저가</th></tr></thead><tbody>${
+    RANKS[type].map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td>
+      <td><span class="sw" style="background:${REG[x.region].color}"></span>${shortName(x.region)}</td>
+      <td><b>${x.avg48 ?? '—'}</b></td><td>${x.score}</td>
+      <td>${x.price != null ? '$' + x.price.toFixed(2) : '—'}</td></tr>`).join('')
+  }</tbody></table></div>`).join('');
 document.getElementById('tiles').innerHTML = DATA.types.map(type => {
-  const best = RANKS.find(x => x.type === type);
+  const best = RANKS[type][0];
   if (!best) return `<div class="tile"><div class="k">${type}</div><div class="v">데이터 없음</div></div>`;
-  return `<div class="tile"><div class="k">${type} 최선</div><div class="v">${shortName(best.region)} · 점수 ${best.score}</div>
-    <div class="d">48h 평균 ${best.avg48 ?? '—'} · $${best.price?.toFixed(2)}/h</div></div>`;
+  return `<div class="tile"><div class="k">${type} 최안정</div><div class="v">${shortName(best.region)} · 48h 평균 ${best.avg48 ?? '—'}</div>
+    <div class="d">현재 점수 ${best.score} · $${best.price?.toFixed(2)}/h</div></div>`;
 }).join('');
 
 // ---- 공용 시계열 차트 ----
