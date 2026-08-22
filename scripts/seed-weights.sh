@@ -46,21 +46,31 @@ UD=$(mktemp)
 cat > "${UD}" <<EOF
 #!/bin/bash
 set -e
+# 성공/실패와 무관하게 반드시 자기 종료 (스팟 one-time + terminate 정책 → 인스턴스 소멸)
+trap 'shutdown -h now' EXIT
 exec > /var/log/seed.log 2>&1
+export PATH="\${PATH}:/usr/local/bin"
 dnf install -y python3-pip xfsprogs
-pip3 install -q 'huggingface_hub[cli,hf_transfer]'
+# huggingface_hub 1.x: CLI 명령은 'hf', hf_transfer는 별도 패키지 ([cli] extra는 제거됨)
+pip3 install -q huggingface_hub hf_transfer
 curl -sL https://github.com/peak/s5cmd/releases/download/v2.2.2/s5cmd_2.2.2_Linux-64bit.tar.gz \
   | tar xz -C /usr/local/bin s5cmd
-# 미사용 NVMe 인스턴스 스토어를 찾아 마운트
-DEV=\$(lsblk -dno NAME,MOUNTPOINT /dev/nvme*n1 | awk '\$2=="" {print "/dev/"\$1; exit}')
-mkfs.xfs -f "\${DEV}" && mkdir -p /mnt/w && mount "\${DEV}" /mnt/w
+# 미사용 NVMe 인스턴스 스토어 탐색 — 파티션이 있거나(루트 디스크) 마운트된 디스크는 제외
+DEV=""
+for d in /dev/nvme*n1; do
+  [ "\$(lsblk -no TYPE "\$d" | wc -l)" -eq 1 ] || continue
+  [ -z "\$(lsblk -no MOUNTPOINTS "\$d" | tr -d '[:space:]')" ] || continue
+  DEV="\$d"; break
+done
+[ -n "\${DEV}" ] || { echo "ERROR: free NVMe instance store not found"; exit 1; }
+mkfs.xfs -f "\${DEV}"
+mkdir -p /mnt/w && mount "\${DEV}" /mnt/w
 export HF_HUB_ENABLE_HF_TRANSFER=1
-huggingface-cli download '${REPO}' --local-dir /mnt/w/m
+hf download '${REPO}' --local-dir /mnt/w/m
 rm -rf /mnt/w/m/.cache
 s5cmd cp /mnt/w/m/ 's3://${BUCKET}/${MODEL_KEY}/'
 date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/.complete
 aws s3 cp /tmp/.complete 's3://${BUCKET}/${MODEL_KEY}/.complete' --region '${REGION}'
-shutdown -h now
 EOF
 
 echo "시더 기동: ${ITYPE} 스팟 (리포 ${REPO} → s3://${BUCKET}/${MODEL_KEY})"
