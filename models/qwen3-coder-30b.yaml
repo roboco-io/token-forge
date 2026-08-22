@@ -1,0 +1,14 @@
+# Qwen/Qwen3-Coder-30B-A3B — 코딩 특화 MoE 30B (활성 3B), 256K 컨텍스트, non-thinking
+# 소형·저비용 바이브 코딩 옵션 — 메인라인 vLLM 서빙
+model: qwen3-coder-30b
+vllmImage: vllm/vllm-openai:v0.27.1
+profiles:
+  fp8:
+    # 공식 FP8 (~31GB) — 4×L40S(192GB)에서 KV 캐시 여유 충분
+    # 12xlarge/24xlarge 모두 4 GPU — 다중 후보로 스팟 확보 확률을 높인다
+    weightsRepo: Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    instanceType: g6e.12xlarge,g6e.24xlarge
+    vllmFlags: >-
+      --tensor-parallel-size 4 --enable-auto-tool-choice
+      --tool-call-parser qwen3_coder --enable-prefix-caching
+    maxModelLen: 131072
