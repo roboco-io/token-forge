@@ -28,6 +28,8 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
     outputs = await d.api.getStackOutputs(stackName);
     if (!outputs) throw new Error('배포 후에도 스택 출력을 읽을 수 없습니다');
   }
+  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tf down이 대상을 찾을 수 있도록 (비용 가드)
+  d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
 
   // ② 가중치 시딩 보장 (스펙 R8: 첫 기동은 선시딩 포함 약 20분)
   const modelKey = outputs.WeightsRepo.replace(/\//g, '_');
@@ -60,5 +62,12 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
     if (!acquired && st.instanceIds.length > 0) { acquired = true; d.log('스팟 확보 — 부팅 중'); }
     await d.sleep(15000);
   }
-  throw new Error('타임아웃(30분) — 스팟 용량 부족 가능성. 다른 리전으로 tf up --region <r>을 시도하세요');
+  // 타임아웃 시 GPU 과금이 방치되지 않도록 desired를 0으로 되돌린다 (비용 가드 최우선 원칙)
+  let restoreMsg = '용량을 0으로 되돌렸습니다.';
+  try {
+    await d.api.setDesired(asgName, 0);
+  } catch (e) {
+    restoreMsg = `용량을 0으로 되돌리는 데 실패해 desired=1이 남아있을 수 있습니다: ${(e as Error).message}`;
+  }
+  throw new Error(`타임아웃(30분) — 스팟 용량 부족 가능성. ${restoreMsg} 다른 리전으로 tf up --region <r>을 시도하세요`);
 }

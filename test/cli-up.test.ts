@@ -72,3 +72,57 @@ test('READY 전 유휴 강등(desired=0)을 감지하면 복구한다', async ()
   expect(restored).toContain(1); // 최초 기동 1회 + 강등 복구 1회 이상
   expect(restored.filter((x) => x === 1).length).toBeGreaterThanOrEqual(2);
 });
+
+test('스택 보장 직후 saveState를 먼저 호출한다 (이후 단계 실패해도 tf down이 대상을 찾도록)', async () => {
+  const saved: unknown[] = [];
+  const d = deps({
+    api: {
+      getStackOutputs: async () => ({ EndpointUrl: 'http://alb', ApiKeySecretArn: 'arn:sec',
+        WeightsBucketName: 'bkt', WeightsRepo: 'Org/Repo' }),
+      getAsgName: async () => 'asg-1',
+      getAsgStatus: async () => ({ desired: 1, instanceIds: ['i-1'] }),
+      setDesired: async () => undefined,
+      getSecret: async () => 'KEY',
+      headObject: async () => { throw new Error('시딩 확인 실패'); }, // ②에서 실패 유도
+    },
+    saveState: (s: unknown) => saved.push(s),
+  });
+  await expect(runUp(opts, d)).rejects.toThrow('시딩 확인 실패');
+  expect(saved.length).toBeGreaterThanOrEqual(1); // ① 직후 저장됨
+});
+
+test('READY 폴링 타임아웃 시 desired=0으로 되돌리고 에러 메시지에 명시한다', async () => {
+  const restored: number[] = [];
+  const d = deps({
+    api: {
+      getStackOutputs: async () => ({ EndpointUrl: 'http://alb', ApiKeySecretArn: 'arn:sec',
+        WeightsBucketName: 'bkt', WeightsRepo: 'Org/Repo' }),
+      getAsgName: async () => 'asg-1',
+      getAsgStatus: async () => ({ desired: 1, instanceIds: ['i-1'] }),
+      setDesired: async (_a: string, n: number) => { restored.push(n); },
+      getSecret: async () => 'KEY',
+      headObject: async () => true,
+    },
+    probeAuth: async () => 0, // 절대 READY 안 됨
+    timeoutMs: 10, // 즉시 타임아웃 (실제 30분 대기 없음)
+  });
+  await expect(runUp(opts, d)).rejects.toThrow('용량을 0으로 되돌렸습니다');
+  expect(restored).toContain(0);
+});
+
+test('타임아웃 후 setDesired(0) 자체가 실패하면 desired=1 잔존 사실을 메시지에 포함한다', async () => {
+  const d = deps({
+    api: {
+      getStackOutputs: async () => ({ EndpointUrl: 'http://alb', ApiKeySecretArn: 'arn:sec',
+        WeightsBucketName: 'bkt', WeightsRepo: 'Org/Repo' }),
+      getAsgName: async () => 'asg-1',
+      getAsgStatus: async () => ({ desired: 1, instanceIds: ['i-1'] }),
+      setDesired: async (_a: string, n: number) => { if (n === 0) throw new Error('AWS API 오류'); },
+      getSecret: async () => 'KEY',
+      headObject: async () => true,
+    },
+    probeAuth: async () => 0,
+    timeoutMs: 10,
+  });
+  await expect(runUp(opts, d)).rejects.toThrow('desired=1이 남아있을 수 있습니다');
+});
