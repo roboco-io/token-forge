@@ -11,7 +11,7 @@ import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 
-const INSTANCE_TYPES = 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge';
+const INSTANCE_TYPES = 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge,g6e.12xlarge';
 const REGIONS = 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2';
 
 /**
