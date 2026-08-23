@@ -14,6 +14,8 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Construct } from 'constructs';
 import { ResolvedProfile } from './model-profile';
 
@@ -204,6 +206,52 @@ export class TokenForgeStack extends cdk.Stack {
       action: elbv2.ListenerAction.forward([vllmTargets]),
     });
 
+    // --- R11 TLS: CloudFront 프론트 도어 (도메인 불요 HTTPS, 설계 결정 1·3·4) ---
+    const allowedCidrs = this.node.tryGetContext('allowedCidrs');
+    let ipAllowFn: cloudfront.Function | undefined;
+    if (allowedCidrs) {
+      const cidrs = String(allowedCidrs).split(',').map((c) => c.trim());
+      // CloudFront Functions(cloudfront-js-2.0)에서 도는 IPv4 CIDR 매칭 — 허용목록 외 403
+      const fnCode = [
+        `var CIDRS = ${JSON.stringify(cidrs)};`,
+        'function ipToInt(ip) { var p = ip.split(\'.\'); return ((+p[0]) * 16777216) + ((+p[1]) * 65536) + ((+p[2]) * 256) + (+p[3]); }',
+        'function inCidr(ip, cidr) { var s = cidr.split(\'/\'); var bits = +s[1]; var div = Math.pow(2, 32 - bits); return Math.floor(ipToInt(ip) / div) === Math.floor(ipToInt(s[0]) / div); }',
+        'function handler(event) {',
+        '  var ip = event.viewer.ip;',
+        '  if (ip.indexOf(\':\') !== -1) { return { statusCode: 403, statusDescription: \'Forbidden\' }; }',
+        '  for (var i = 0; i < CIDRS.length; i++) { if (inCidr(ip, CIDRS[i])) { return event.request; } }',
+        '  return { statusCode: 403, statusDescription: \'Forbidden\' };',
+        '}',
+      ].join('\n');
+      ipAllowFn = new cloudfront.Function(this, 'IpAllowFn', {
+        code: cloudfront.FunctionCode.fromInline(fnCode),
+        runtime: cloudfront.FunctionRuntime.JS_2_0,
+        comment: 'token-forge source IP allowlist',
+      });
+    }
+
+    const cdn = new cloudfront.Distribution(this, 'Cdn', {
+      comment: 'token-forge HTTPS front door',
+      enableIpv6: false,
+      defaultBehavior: {
+        origin: new origins.LoadBalancerV2Origin(alb, {
+          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+          customHeaders: { 'X-Origin-Verify': originVerifyValue },
+          readTimeout: cdk.Duration.seconds(60),
+        }),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+        ...(ipAllowFn ? {
+          functionAssociations: [{
+            function: ipAllowFn,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          }],
+        } : {}),
+      },
+    });
+
     // --- 알림: 스팟 중단 경고 + 30분 무용량 알람 → SNS ---
     const alertTopic = new sns.Topic(this, 'AlertTopic');
     const alertEmail = this.node.tryGetContext('alertEmail');
@@ -294,8 +342,8 @@ exports.handler = async () => {
 
     // --- 출력 ---
     new cdk.CfnOutput(this, 'EndpointUrl', {
-      value: `http://${alb.loadBalancerDnsName}`,
-      description: 'OpenAI-compatible endpoint base URL',
+      value: `https://${cdn.distributionDomainName}`,
+      description: 'HTTPS endpoint base URL (OpenAI + Anthropic compatible)',
     });
     new cdk.CfnOutput(this, 'ApiKeySecretArn', {
       value: apiKeySecret.secretArn,

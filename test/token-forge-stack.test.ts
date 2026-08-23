@@ -318,3 +318,60 @@ describe('idle shutdown', () => {
     expect(Object.keys(alarms)).toHaveLength(1); // NoCapacityAlarm만 남는다
   });
 });
+
+function makeTemplateWithContext(app: cdk.App): Template {
+  const resolvedProfile = loadModelProfile(
+    path.join(__dirname, '..', 'models'), 'solar-open2-250b', 'int4',
+  );
+  const stack = new TokenForgeStack(app, 'TestWithContext', {
+    resolvedProfile,
+    env: { account: '111111111111', region: 'us-east-2' },
+  });
+  return Template.fromStack(stack);
+}
+
+describe('R11: CloudFront 프론트 도어', () => {
+  const template = makeTemplate();
+
+  test('Distribution이 캐시 비활성 + HTTPS 전용 뷰어 + HTTP 오리진으로 생성됨', () => {
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Enabled: true,
+        IPV6Enabled: false,
+        DefaultCacheBehavior: Match.objectLike({
+          ViewerProtocolPolicy: 'https-only',
+          CachePolicyId: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad',
+        }),
+        Origins: [Match.objectLike({
+          CustomOriginConfig: Match.objectLike({
+            OriginProtocolPolicy: 'http-only',
+            OriginReadTimeout: 60,
+          }),
+          OriginCustomHeaders: [Match.objectLike({ HeaderName: 'X-Origin-Verify' })],
+        })],
+      }),
+    });
+  });
+
+  test('EndpointUrl 출력이 https CloudFront 도메인', () => {
+    const out = template.findOutputs('EndpointUrl');
+    expect(JSON.stringify(out.EndpointUrl.Value)).toContain('https://');
+    expect(JSON.stringify(out.EndpointUrl.Value)).not.toContain('LoadBalancer');
+  });
+
+  test('allowedCidrs 미지정 시 CloudFront Function 없음', () => {
+    template.resourceCountIs('AWS::CloudFront::Function', 0);
+  });
+});
+
+describe('R11: allowedCidrs 소스 IP 허용목록', () => {
+  test('지정 시 viewer-request CloudFront Function이 CIDR 목록을 담아 생성됨', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '203.0.113.0/24,198.51.100.7/32' } });
+    const t = makeTemplateWithContext(app);
+    t.resourceCountIs('AWS::CloudFront::Function', 1);
+    const fns = t.findResources('AWS::CloudFront::Function');
+    const code = JSON.stringify(fns);
+    expect(code).toContain('203.0.113.0/24');
+    expect(code).toContain('198.51.100.7/32');
+  });
+});
