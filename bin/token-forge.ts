@@ -2,6 +2,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as path from 'path';
 import { loadModelProfile } from '../lib/model-profile';
+import { stackNameFor } from '../lib/naming';
 import { TokenForgeStack } from '../lib/token-forge-stack';
 import { SpotScoreCollectorStack } from '../lib/spot-score-collector-stack';
 
@@ -21,8 +22,7 @@ if (app.node.tryGetContext('collector')) {
     path.join(__dirname, '..', 'models'), model, profileName,
   );
 
-  // CloudFormation 스택 이름 제약(/^[A-Za-z][A-Za-z0-9-]*$/)에 맞게 정규화
-  const stackName = `TokenForge-${model}-${profileName}`.replace(/[^A-Za-z0-9-]/g, '-');
+  const stackName = stackNameFor(model, profileName);
 
   new TokenForgeStack(app, stackName, {
     resolvedProfile,
