@@ -6,7 +6,7 @@ import { spawn } from 'child_process';
 import * as pkg from '../package.json';
 import { listModels, defaultProfile } from './catalog';
 import { AwsApi } from './aws';
-import { loadState, saveState } from './state';
+import { loadState, saveState, clearState, removeRegionFromState } from './state';
 import { runStatus } from './commands/status';
 import { runUp, runUpAuto, ensureStackReady, waitReady } from './commands/up';
 import { runDown } from './commands/down';
@@ -100,11 +100,18 @@ export function buildProgram(): Command {
     });
 
   program.command('down')
-    .description('GPU 정지 (--purge: 스택·가중치 캐시까지 완전 삭제)')
+    .description('GPU 정지 (--purge: 스택·가중치 캐시까지 완전 삭제, --region: 대상 리전 지정)')
     .option('--purge', '완전 삭제', false)
-    .action(async (o: { purge: boolean }) => {
+    .option('--region <r>', '대상 리전 (기본: 마지막 up 리전)')
+    .action(async (o: { purge: boolean; region?: string }) => {
       const state = requireState();
-      console.log(await runDown(state, o.purge, { api: new AwsApi(state.region), exec: execInherit }));
+      const target = o.region ?? state.region;
+      console.log(await runDown({ ...state, region: target }, o.purge,
+        { api: new AwsApi(target), exec: execInherit }));
+      if (o.purge) { // purge된 리전의 흔적을 상태에서 제거
+        if (target === state.region) clearState();
+        else saveState(removeRegionFromState(state, target));
+      }
     });
 
   program.command('connect <client>')
