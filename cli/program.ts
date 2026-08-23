@@ -9,6 +9,7 @@ import { AwsApi } from './aws';
 import { loadState, saveState, clearState, removeRegionFromState } from './state';
 import { runStatus } from './commands/status';
 import { runUp, runUpAuto, ensureStackReady, waitReady } from './commands/up';
+import { runSeed, SeedChoice } from './commands/seed';
 import { runDown } from './commands/down';
 import { renderClaudeEnv } from './commands/connect';
 import { loadModelProfile } from '../lib/model-profile';
@@ -19,6 +20,7 @@ import { fetchFeed } from './placement/feed';
 import { getRtt, tcpConnector } from './placement/latency';
 import { gatherCandidates } from './placement/engine';
 import { runRace } from './commands/race';
+import checkbox from '@inquirer/checkbox';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -97,6 +99,46 @@ export function buildProgram(): Command {
         saveState, loadState, log: (m) => console.log(m), now: () => new Date(),
       });
       console.log(`완료 — ${r.region} / ${r.endpoint}`);
+    });
+
+  program.command('seed <model>')
+    .description('가중치 S3 선시딩만 수행 (GPU 0대, up과 분리) — 리전 생략 시 배치 엔진 추천 + 체크박스 다중 선택')
+    .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
+    .option('--region <r>', 'AWS 리전 (지정 시 해당 리전만 즉시 시딩)')
+    .action(async (model: string, o: { profile?: string; region?: string }) => {
+      const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
+      const cfg = loadConfig();
+      const rp = loadModelProfile(MODELS_DIR, model, profile);
+      const types = rp.instanceType.split(',');
+      const stackName = stackNameFor(model, profile);
+      const tfDir = path.join(os.homedir(), '.token-forge');
+      const mkUpDeps = (region: string) => ({
+        api: new AwsApi(region), exec: execInherit, probeAuth,
+        sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+        saveState, log: (m: string) => console.log(m), timeoutMs: 30 * 60 * 1000,
+      });
+      const regions = await runSeed({ model, profile, region: o.region }, {
+        gather: () => gatherCandidates({ types, stackName, weightsRepo: rp.weightsRepo }, {
+          config: cfg, fetchFeed: (u) => fetchFeed(u), apiFor: (rg) => new AwsApi(rg),
+          getRtt: (rg) => getRtt(rg, { connect: tcpConnector, dir: tfDir, now: () => new Date() }),
+          now: () => new Date(),
+        }),
+        thresholds: { score: cfg.scoreTieThreshold, rttMs: cfg.rttTieThresholdMs },
+        k: cfg.k,
+        ensure: async (region) => { await ensureStackReady({ model, profile, region }, mkUpDeps(region)); },
+        select: async (choices: SeedChoice[]) => {
+          if (!process.stdout.isTTY) {
+            console.error('비-TTY 환경입니다 — --region <r>을 지정하세요');
+            process.exit(1);
+          }
+          return checkbox({
+            message: '시딩할 리전 선택 (스페이스 토글, 엔터 확정)',
+            choices: choices.map((c) => ({ name: c.label, value: c.region, checked: c.checked })),
+          });
+        },
+        log: (m) => console.log(m),
+      });
+      if (regions.length > 0) console.log(`시딩 완료: ${regions.join(', ')}`);
     });
 
   program.command('down')
