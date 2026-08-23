@@ -27,3 +27,16 @@ test('down --purge — destroy 후 가중치 버킷 삭제', async () => {
   expect(calls).toContain('del:bkt');
   expect(msg).toContain('완전 삭제');
 });
+
+test('리전 오버라이드 상태로도 정지 동작 동일', async () => {
+  const calls: string[] = [];
+  const api = {
+    getAsgName: async () => 'asg-x',
+    setDesired: async (a: string, n: number) => { calls.push(`${a}:${n}`); },
+    getStackOutputs: async () => ({ WeightsBucketName: 'bkt' }), emptyAndDeleteBucket: async () => {},
+  };
+  const msg = await runDown({ model: 'm', profile: 'p', region: 'us-west-2' }, false,
+    { api: api as never, exec: async () => 0 });
+  expect(calls).toEqual(['asg-x:0']);
+  expect(msg).toContain('정지');
+});

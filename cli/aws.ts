@@ -1,8 +1,9 @@
 import { CloudFormationClient, DescribeStacksCommand, ListStackResourcesCommand } from '@aws-sdk/client-cloudformation';
 import { AutoScalingClient, SetDesiredCapacityCommand, UpdateAutoScalingGroupCommand, DescribeAutoScalingGroupsCommand } from '@aws-sdk/client-auto-scaling';
-import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
+import { EC2Client, DescribeInstancesCommand, DescribeInstanceTypesCommand, DescribeSpotPriceHistoryCommand, GetSpotPlacementScoresCommand } from '@aws-sdk/client-ec2';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { ServiceQuotasClient, GetServiceQuotaCommand } from '@aws-sdk/client-service-quotas';
 
 export class AwsApi {
   private cfn: CloudFormationClient;
@@ -10,6 +11,7 @@ export class AwsApi {
   private ec2: EC2Client;
   private sm: SecretsManagerClient;
   private s3: S3Client;
+  private sq: ServiceQuotasClient;
 
   constructor(region: string) {
     this.cfn = new CloudFormationClient({ region });
@@ -17,6 +19,7 @@ export class AwsApi {
     this.ec2 = new EC2Client({ region });
     this.sm = new SecretsManagerClient({ region });
     this.s3 = new S3Client({ region });
+    this.sq = new ServiceQuotasClient({ region });
   }
 
   async getStackOutputs(stackName: string): Promise<Record<string, string> | null> {
@@ -49,12 +52,17 @@ export class AwsApi {
     }
   }
 
-  async getAsgStatus(asgName: string): Promise<{ desired: number; instanceIds: string[] }> {
+  async getAsgStatus(asgName: string): Promise<{ desired: number; instanceIds: string[]; inServiceIds: string[] }> {
     const out = await this.asg.send(new DescribeAutoScalingGroupsCommand(
       { AutoScalingGroupNames: [asgName] }));
     const g = out.AutoScalingGroups?.[0];
     if (!g) throw new Error(`ASG ${asgName} 없음`);
-    return { desired: g.DesiredCapacity ?? 0, instanceIds: (g.Instances ?? []).map((i) => i.InstanceId!) };
+    const instances = g.Instances ?? [];
+    return {
+      desired: g.DesiredCapacity ?? 0,
+      instanceIds: instances.map((i) => i.InstanceId!),
+      inServiceIds: instances.filter((i) => i.LifecycleState === 'InService').map((i) => i.InstanceId!),
+    };
   }
 
   async getInstanceType(instanceId: string): Promise<string> {
@@ -85,5 +93,37 @@ export class AwsApi {
   async headObject(bucket: string, key: string): Promise<boolean> {
     try { await this.s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key })); return true; }
     catch (e) { if ((e as Error).name === 'NotFound' || (e as Error).name === '404') return false; throw e; }
+  }
+
+  /** 스팟 vCPU 쿼터 — G·VT: L-3819A6DF, P: L-7212CCBC (스펙 R10 파생 입력) */
+  async getSpotVcpuQuota(family: 'g' | 'p'): Promise<number> {
+    const code = family === 'p' ? 'L-7212CCBC' : 'L-3819A6DF';
+    const out = await this.sq.send(new GetServiceQuotaCommand({ ServiceCode: 'ec2', QuotaCode: code }));
+    return out.Quota?.Value ?? 0;
+  }
+
+  async getVcpuCount(instanceType: string): Promise<number> {
+    const out = await this.ec2.send(new DescribeInstanceTypesCommand({ InstanceTypes: [instanceType as never] }));
+    const v = out.InstanceTypes?.[0]?.VCpuInfo?.DefaultVCpus;
+    if (!v) throw new Error(`인스턴스 타입 정보 없음: ${instanceType}`);
+    return v;
+  }
+
+  async getCurrentSpotPrice(instanceType: string): Promise<number | null> {
+    const out = await this.ec2.send(new DescribeSpotPriceHistoryCommand({
+      InstanceTypes: [instanceType as never], ProductDescriptions: ['Linux/UNIX'], MaxResults: 20,
+    }));
+    const prices = (out.SpotPriceHistory ?? []).map((h) => Number(h.SpotPrice)).filter((n) => !Number.isNaN(n));
+    return prices.length ? Math.min(...prices) : null;
+  }
+
+  /** 피드 미커버 리전의 실시간 폴백 (스펙 R10 실패 경로 ①) */
+  async getPlacementScore(instanceTypes: string[], region: string): Promise<number | null> {
+    const out = await this.ec2.send(new GetSpotPlacementScoresCommand({
+      InstanceTypes: instanceTypes as never, TargetCapacity: 1,
+      SingleAvailabilityZone: false, RegionNames: [region],
+    }));
+    const hit = (out.SpotPlacementScores ?? []).find((s) => s.Region === region);
+    return hit?.Score ?? null;
   }
 }

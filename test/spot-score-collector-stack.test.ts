@@ -43,7 +43,7 @@ test('Lambda 런타임과 수집 파라미터 env 주입', () => {
     Timeout: 60,
     Environment: {
       Variables: Match.objectLike({
-        INSTANCE_TYPES: 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge',
+        INSTANCE_TYPES: 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge,g6e.12xlarge',
         REGIONS: 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2',
         TTL_DAYS: '90',
       }),
@@ -72,7 +72,7 @@ test('퍼블리셔 Lambda는 Python 런타임 + 시간당 룰이 수집기·퍼�
     Timeout: 300,
     Environment: {
       Variables: Match.objectLike({
-        INSTANCE_TYPES: 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge',
+        INSTANCE_TYPES: 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge,g6e.12xlarge',
         REGIONS: 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2',
       }),
     },

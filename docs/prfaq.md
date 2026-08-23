@@ -23,8 +23,8 @@ AI 코딩 도구는 이제 개발자의 일상이지만, 두 가지 벽이 있�
 token-forge는 이 확보 문제를 데이터로 푼다. roboco가 상시 수집·공개하는 스팟
 배치점수 추이를 바탕으로 확보 확률이 높은 리전 후보를 고르고, **후보 리전들에
 동시에 스팟을 요청해 먼저 잡히는 곳만 남기고 나머지는 즉시 취소**한다(병렬 레이스).
-개발자는 리전을 몰라도 된다. `tf up` 한 번이면 평균 8분 뒤 OpenAI·Anthropic 호환
-엔드포인트가 뜨고, `tf connect claude` 한 번이면 Claude Code가 그 엔드포인트로
+개발자는 리전을 몰라도 된다. `tkf up` 한 번이면 평균 8분 뒤 OpenAI·Anthropic 호환
+엔드포인트가 뜨고, `tkf connect claude` 한 번이면 Claude Code가 그 엔드포인트로
 동작한다. 프롬프트도, 응답도, 사용량 통계조차도 계정 밖으로 나가지 않는다.
 
 비용은 구독 서비스와 같은 자릿수다. 30B급 코딩 모델 기준 하루 3-4시간 사용 시
@@ -37,11 +37,11 @@ GPU가 다운로드에 시간을 쓰지 않는다. 스팟이 회수되면 여러
 그걸 명령 한 줄에 담았습니다." — 정도현, roboco
 
 "회사 규정상 외부 LLM API를 못 쓰는데, 이제 제 계정 안에서 Claude Code를 씁니다.
-아침에 `tf up` 걸어놓고 커피 타 오면 준비가 끝나 있어요. 지난달 GPU 요금은
+아침에 `tkf up` 걸어놓고 커피 타 오면 준비가 끝나 있어요. 지난달 GPU 요금은
 14만 원이었습니다." — 베타 사용자, 금융권 백엔드 개발자
 
 시작하려면 AWS 계정과 스팟 쿼터만 있으면 된다. `npm install -g token-forge` 후
-`tf up qwen3-coder-30b`를 실행하라. 전체 코드는 GitHub(roboco-io/token-forge)에
+`tkf up qwen3-coder-30b`를 실행하라. 전체 코드는 GitHub(roboco-io/token-forge)에
 공개돼 있어 계정 안에서 무엇이 실행되는지 직접 감사할 수 있다.
 
 ---
@@ -65,7 +65,7 @@ GPU가 다운로드에 시간을 쓰지 않는다. 스팟이 회수되면 여러
 자가 수집기를 돌리면 된다. 전송 구간은 TLS로 보호된다.
 
 **Q3. Claude Code에 어떻게 연결하나?**
-`tf connect claude`가 `ANTHROPIC_BASE_URL`·인증 토큰·모델명을 자동 구성한다.
+`tkf connect claude`가 `ANTHROPIC_BASE_URL`·인증 토큰·모델명을 자동 구성한다.
 vLLM의 네이티브 Anthropic 호환 API(`/v1/messages`)를 쓰므로 변환 프록시가 없고,
 도구 호출·스트리밍·서브에이전트 팬아웃까지 검증돼 있다. Cursor·Aider 등 OpenAI
 호환 도구는 같은 엔드포인트의 `/v1/chat/completions`를 쓰면 된다.

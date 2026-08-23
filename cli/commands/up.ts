@@ -1,6 +1,9 @@
 import { AwsApi } from '../aws';
 import { stackNameFor } from '../../lib/naming';
 import { TfState } from '../state';
+import { TfConfig } from '../config';
+import { Candidate, rank } from '../placement/engine';
+import { RaceEntrant } from './race';
 
 export interface UpOpts { model: string; profile: string; region: string }
 export interface UpDeps {
@@ -13,7 +16,10 @@ export interface UpDeps {
   timeoutMs: number; // 기본 30분 (스펙 R8)
 }
 
-export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string }> {
+export async function ensureStackReady(
+  opts: UpOpts,
+  d: Pick<UpDeps, 'api' | 'exec' | 'log' | 'saveState'>,
+): Promise<{ outputs: Record<string, string>; stackName: string }> {
   const stackName = stackNameFor(opts.model, opts.profile);
 
   // ① 스택 보장 (GPU 0대로 생성 — 스펙 R7 선시딩 워크플로)
@@ -28,7 +34,7 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
     outputs = await d.api.getStackOutputs(stackName);
     if (!outputs) throw new Error('배포 후에도 스택 출력을 읽을 수 없습니다');
   }
-  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tf down이 대상을 찾을 수 있도록 (비용 가드)
+  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tkf down이 대상을 찾을 수 있도록 (비용 가드)
   d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
 
   // ② 가중치 시딩 보장 (스펙 R8: 첫 기동은 선시딩 포함 약 20분)
@@ -38,6 +44,15 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
     const code = await d.exec('scripts/seed-weights.sh', [stackName, opts.region]);
     if (code !== 0) throw new Error('선시딩 실패 — 시더 로그를 확인하세요');
   }
+
+  return { outputs, stackName };
+}
+
+export async function waitReady(
+  args: { stackName: string; outputs: Record<string, string> },
+  d: Pick<UpDeps, 'api' | 'probeAuth' | 'sleep' | 'log' | 'timeoutMs'>,
+): Promise<{ endpoint: string }> {
+  const { stackName, outputs } = args;
 
   // ③ 기동 + ④ READY 대기 (상시 프로브가 유휴 알람 발화를 막고, 강등 시 자동 복구)
   const asgName = await d.api.getAsgName(stackName);
@@ -49,9 +64,8 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
   while (Date.now() < deadline) {
     const code = await d.probeAuth(`${outputs.EndpointUrl}/v1/models`, key);
     if (code === 200) {
-      d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
       d.log(`READY — ${outputs.EndpointUrl}`);
-      d.log('다음: tf connect claude');
+      d.log('다음: tkf connect claude');
       return { endpoint: outputs.EndpointUrl };
     }
     const st = await d.api.getAsgStatus(asgName);
@@ -69,5 +83,79 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
   } catch (e) {
     restoreMsg = `용량을 0으로 되돌리는 데 실패해 desired=1이 남아있을 수 있습니다: ${(e as Error).message}`;
   }
-  throw new Error(`타임아웃(30분) — 스팟 용량 부족 가능성. ${restoreMsg} 다른 리전으로 tf up --region <r>을 시도하세요`);
+  throw new Error(`타임아웃(30분) — 스팟 용량 부족 가능성. ${restoreMsg} 다른 리전으로 tkf up --region <r>을 시도하세요`);
+}
+
+export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string }> {
+  const { outputs, stackName } = await ensureStackReady(opts, d);
+
+  const { endpoint } = await waitReady({ stackName, outputs }, d);
+  d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
+  return { endpoint };
+}
+
+export interface UpAutoDeps {
+  config: TfConfig;
+  gather: () => Promise<{ cands: Candidate[]; notices: string[] }>;
+  /** ensureStackReady를 리전만 바꿔 호출하는 클로저 (program.ts에서 조립) */
+  ensure: (o: { model: string; profile: string; region: string }) => Promise<{ outputs: Record<string, string>; stackName: string }>;
+  asgNameFor: (region: string, stackName: string) => Promise<string>;
+  race: (entrants: RaceEntrant[]) => Promise<RaceEntrant>;
+  wait: (a: { stackName: string; outputs: Record<string, string>; region: string }) => Promise<{ endpoint: string }>;
+  saveState: (s: TfState) => void;
+  loadState?: () => TfState | null;
+  log: (m: string) => void;
+  now: () => Date;
+}
+
+export async function runUpAuto(opts: { model: string; profile: string }, d: UpAutoDeps): Promise<{ endpoint: string; region: string }> {
+  const { cands, notices } = await d.gather();
+  notices.forEach(d.log);
+  const ranked = rank(cands, { score: d.config.scoreTieThreshold, rttMs: d.config.rttTieThresholdMs });
+  const k = d.config.standby === 'single' ? 1 : Math.min(d.config.k, ranked.length);
+  const top = ranked.slice(0, k);
+  d.log(`후보 선정: ${top.map((c, i) => `${i + 1}. ${c.region}(점수 ${c.score.toFixed(1)})`).join('  ')}`);
+
+  // 스택·시딩은 순차 보장 — cdk.out 충돌 방지 (설계 결정 6)
+  const prepared: { cand: Candidate; outputs: Record<string, string>; stackName: string; asgName: string }[] = [];
+  for (const cand of top) {
+    const { outputs, stackName } = await d.ensure({ model: opts.model, profile: opts.profile, region: cand.region });
+    prepared.push({ cand, outputs, stackName, asgName: await d.asgNameFor(cand.region, stackName) });
+  }
+
+  // 레이스(최대 30분) 중 중단되어도 tkf down이 전 후보 리전을 찾을 수 있도록,
+  // standbyRegions를 포함한 상태를 레이스 호출 전에 잠정 저장한다 (region은 잠정 top 1위).
+  const prev = d.loadState?.() ?? null;
+  const standbyRegions = top.map((c) => c.region);
+  let lastUsed = { ...(prev?.lastUsed ?? {}), [prepared[0].cand.region]: d.now().toISOString() };
+  d.saveState({ model: opts.model, profile: opts.profile, region: prepared[0].cand.region, standbyRegions, lastUsed });
+
+  let winner = prepared[0];
+  if (prepared.length > 1) {
+    const w = await d.race(prepared.map((p) => ({ region: p.cand.region, asgName: p.asgName, endpointUrl: p.outputs.EndpointUrl })));
+    winner = prepared.find((p) => p.cand.region === w.region)!;
+  }
+
+  lastUsed = { ...lastUsed, [winner.cand.region]: d.now().toISOString() };
+  const state: TfState = { model: opts.model, profile: opts.profile, region: winner.cand.region,
+    standbyRegions, lastUsed };
+  d.saveState(state);
+
+  const { endpoint } = await d.wait({ stackName: winner.stackName, outputs: winner.outputs, region: winner.cand.region });
+
+  // lazy: 패자 스택 정리 제안 (자동 삭제 금지 — 설계 결정 4)
+  if (d.config.standby === 'lazy') {
+    for (const p of prepared.filter((x) => x !== winner)) {
+      d.log(`lazy 모드 — 대기 스택 정리: tkf down --purge --region ${p.cand.region}`);
+    }
+  }
+  // 캐시 보유 리전 상한(설계 결정 5) 초과 시 LRU 정리 제안
+  const cap = d.config.standby === 'race' ? d.config.k : d.config.standby === 'single' ? 1 : 2;
+  const regions = Object.entries(lastUsed).sort(([, a], [, b]) => a.localeCompare(b)); // 오래된 순
+  const over = regions.length - cap;
+  for (let i = 0; i < over; i++) {
+    if (top.some((c) => c.region === regions[i][0])) continue; // 이번 후보는 제안 제외
+    d.log(`가중치 캐시 보유 리전이 상한(${cap})을 초과 — 정리 제안: tkf down --purge --region ${regions[i][0]}`);
+  }
+  return { endpoint, region: winner.cand.region };
 }

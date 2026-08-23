@@ -6,20 +6,26 @@ import { spawn } from 'child_process';
 import * as pkg from '../package.json';
 import { listModels, defaultProfile } from './catalog';
 import { AwsApi } from './aws';
-import { loadState, saveState } from './state';
+import { loadState, saveState, clearState, removeRegionFromState } from './state';
 import { runStatus } from './commands/status';
-import { runUp } from './commands/up';
+import { runUp, runUpAuto, ensureStackReady, waitReady } from './commands/up';
 import { runDown } from './commands/down';
 import { renderClaudeEnv } from './commands/connect';
 import { loadModelProfile } from '../lib/model-profile';
 import { stackNameFor } from '../lib/naming';
+import { loadConfig, saveConfig } from './config';
+import { runPlacement } from './commands/placement';
+import { fetchFeed } from './placement/feed';
+import { getRtt, tcpConnector } from './placement/latency';
+import { gatherCandidates } from './placement/engine';
+import { runRace } from './commands/race';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
 export function buildProgram(): Command {
   const program = new Command();
   program
-    .name('tf')
+    .name('tkf')
     .description('token-forge — 내 AWS 계정 안의 프라이빗 바이브 코딩 LLM')
     .version(pkg.version);
 
@@ -33,7 +39,7 @@ export function buildProgram(): Command {
   /** 상태 파일 필수 로드 — 없으면 사용법 안내 후 종료 */
   function requireState() {
     const s = loadState();
-    if (!s) { console.error('기록된 대상이 없습니다. 먼저 tf up <model>을 실행하세요.'); process.exit(1); }
+    if (!s) { console.error('기록된 대상이 없습니다. 먼저 tkf up <model>을 실행하세요.'); process.exit(1); }
     return s;
   }
 
@@ -50,24 +56,62 @@ export function buildProgram(): Command {
   });
 
   program.command('up <model>')
-    .description('스팟 LLM 기동 (스택·시딩 자동 준비)')
+    .description('스팟 LLM 기동 — 리전 생략 시 배치 엔진이 자동 선정 + 병렬 레이스')
     .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
-    .option('--region <r>', 'AWS 리전', 'ap-northeast-2')
-    .action(async (model: string, o: { profile?: string; region: string }) => {
+    .option('--region <r>', 'AWS 리전 (지정 시 해당 리전만 사용)')
+    .action(async (model: string, o: { profile?: string; region?: string }) => {
       const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
-      await runUp({ model, profile, region: o.region }, {
-        api: new AwsApi(o.region), exec: execInherit, probeAuth,
-        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-        saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+      if (o.region) { // 기존 단일 리전 경로 (동작 불변)
+        await runUp({ model, profile, region: o.region }, {
+          api: new AwsApi(o.region), exec: execInherit, probeAuth,
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+        });
+        return;
+      }
+      const cfg = loadConfig();
+      const rp = loadModelProfile(MODELS_DIR, model, profile);
+      const types = rp.instanceType.split(',');
+      const stackName = stackNameFor(model, profile);
+      const tfDir = path.join(os.homedir(), '.token-forge');
+      const mkUpDeps = (region: string) => ({
+        api: new AwsApi(region), exec: execInherit, probeAuth,
+        sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+        saveState, log: (m: string) => console.log(m), timeoutMs: 30 * 60 * 1000,
       });
+      const r = await runUpAuto({ model, profile }, {
+        config: cfg,
+        gather: () => gatherCandidates({ types, stackName, weightsRepo: rp.weightsRepo }, {
+          config: cfg, fetchFeed: (u) => fetchFeed(u), apiFor: (rg) => new AwsApi(rg),
+          getRtt: (rg) => getRtt(rg, { connect: tcpConnector, dir: tfDir, now: () => new Date() }),
+          now: () => new Date(),
+        }),
+        ensure: (eo) => ensureStackReady(eo, mkUpDeps(eo.region)),
+        asgNameFor: (region, sn) => new AwsApi(region).getAsgName(sn),
+        race: (entrants) => runRace(entrants, {
+          apiFor: (rg) => new AwsApi(rg), probe,
+          sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
+          log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+        }),
+        wait: (a) => waitReady({ stackName: a.stackName, outputs: a.outputs }, mkUpDeps(a.region)),
+        saveState, loadState, log: (m) => console.log(m), now: () => new Date(),
+      });
+      console.log(`완료 — ${r.region} / ${r.endpoint}`);
     });
 
   program.command('down')
-    .description('GPU 정지 (--purge: 스택·가중치 캐시까지 완전 삭제)')
+    .description('GPU 정지 (--purge: 스택·가중치 캐시까지 완전 삭제, --region: 대상 리전 지정)')
     .option('--purge', '완전 삭제', false)
-    .action(async (o: { purge: boolean }) => {
+    .option('--region <r>', '대상 리전 (기본: 마지막 up 리전)')
+    .action(async (o: { purge: boolean; region?: string }) => {
       const state = requireState();
-      console.log(await runDown(state, o.purge, { api: new AwsApi(state.region), exec: execInherit }));
+      const target = o.region ?? state.region;
+      console.log(await runDown({ ...state, region: target }, o.purge,
+        { api: new AwsApi(target), exec: execInherit }));
+      if (o.purge) { // purge된 리전의 흔적을 상태에서 제거
+        if (target === state.region) clearState();
+        else saveState(removeRegionFromState(state, target));
+      }
     });
 
   program.command('connect <client>')
@@ -78,7 +122,7 @@ export function buildProgram(): Command {
       const state = requireState();
       const api = new AwsApi(state.region);
       const outputs = await api.getStackOutputs(stackNameFor(state.model, state.profile));
-      if (!outputs) { console.error('스택 없음 — 먼저 tf up을 실행하세요.'); process.exit(1); }
+      if (!outputs) { console.error('스택 없음 — 먼저 tkf up을 실행하세요.'); process.exit(1); }
       const key = await api.getSecret(outputs.ApiKeySecretArn);
       const served = loadModelProfile(MODELS_DIR, state.model, state.profile).weightsRepo;
       const env = renderClaudeEnv(outputs.EndpointUrl, key, served);
@@ -89,6 +133,50 @@ export function buildProgram(): Command {
       fs.chmodSync(file, 0o600); // 기존 파일도 0600으로 보장
       console.log(`기록됨: ${file}`);
       console.log(`적용:   source ${file} && claude`);
+    });
+
+  const config = program.command('config').description('CLI 설정 (~/.token-forge/config.json)');
+  config.command('get [key]').description('설정 조회').action((key?: string) => {
+    const c = loadConfig();
+    if (!key) { console.log(JSON.stringify(c, null, 2)); return; }
+    if (!(key in c)) { console.error(`알 수 없는 키: ${key}`); process.exit(1); }
+    console.log(String(c[key as keyof typeof c]));
+  });
+  config.command('set <key> <value>').description('설정 변경').action((key: string, value: string) => {
+    const c = loadConfig();
+    if (key === 'standby') {
+      if (!['race', 'single', 'lazy'].includes(value)) { console.error('standby는 race|single|lazy'); process.exit(1); }
+      c.standby = value as typeof c.standby;
+    } else if (key === 'k') {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > 4) { console.error('k는 1-4 정수'); process.exit(1); }
+      c.k = n;
+    } else if (key === 'feedUrl') { c.feedUrl = value; }
+    else if (key === 'scoreTieThreshold' || key === 'rttTieThresholdMs') {
+      const n = Number(value);
+      if (!(n >= 0)) { console.error(`${key}는 0 이상 숫자`); process.exit(1); }
+      c[key] = n;
+    } else { console.error(`알 수 없는 키: ${key}`); process.exit(1); }
+    saveConfig(c);
+    console.log(`설정됨: ${key}=${value}`);
+  });
+
+  program.command('placement <model>')
+    .description('리전 추천 표시 (배치점수·레이턴시·가격·쿼터 종합)')
+    .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
+    .action(async (model: string, o: { profile?: string }) => {
+      const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
+      const rp = loadModelProfile(MODELS_DIR, model, profile);
+      const cfg = loadConfig();
+      const lines = await runPlacement(
+        { types: rp.instanceType.split(','), stackName: stackNameFor(model, profile), weightsRepo: rp.weightsRepo, k: cfg.k },
+        {
+          config: cfg, fetchFeed: (u) => fetchFeed(u), apiFor: (r) => new AwsApi(r),
+          getRtt: (r) => getRtt(r, { connect: tcpConnector, dir: path.join(os.homedir(), '.token-forge'), now: () => new Date() }),
+          now: () => new Date(),
+          thresholds: { score: cfg.scoreTieThreshold, rttMs: cfg.rttTieThresholdMs },
+        });
+      lines.forEach((l) => console.log(l));
     });
 
   return program;

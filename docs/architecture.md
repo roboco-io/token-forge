@@ -17,7 +17,7 @@ roboco는 서버를 운영하지 않는다 — 유일한 외부 서비스는 "�
 flowchart TB
     subgraph LOCAL["개발자 로컬"]
         CC["Claude Code / OpenAI 호환 도구"]
-        TF["tf CLI  (cli/)"]
+        TF["tkf CLI  (cli/)"]
     end
 
     subgraph USER["사용자 AWS 계정  ← 추론·데이터는 전부 여기"]
@@ -69,7 +69,7 @@ scripts/
   start.sh / stop.sh      # desired 1/0 수동 토글
   smoke-test.sh           # /v1/models + /v1/chat/completions 검증
 cli/
-  tf.ts                   # 실행 진입점 (bin: tf)
+  tkf.ts                  # 실행 진입점 (bin: tkf)
   program.ts              # commander 커맨드 정의 + 헬퍼 (probe, execInherit 등)
   commands/               # up / down / status / connect (+ 2단계: placement, race)
   aws.ts                  # AWS SDK 래퍼 (AwsApi) — 테스트는 aws-sdk-client-mock
@@ -103,18 +103,18 @@ PLACEHOLDERS 목록. 하나라도 빠지면 테스트가 막아 준다.
 첫 타입이 Launch Template 기본이 되고, 전체가 ASG MixedInstancesPolicy의
 overrides가 되어 **리전 안에서 타입·AZ 차원의 확보 레이스를 ASG가 알아서 수행**한다.
 
-## 5. 기동 시퀀스 — `tf up`에서 Claude Code 연결까지
+## 5. 기동 시퀀스 — `tkf up`에서 Claude Code 연결까지
 
 ```mermaid
 sequenceDiagram
     actor Dev as 개발자
-    participant CLI as tf CLI
+    participant CLI as tkf CLI
     participant CFN as CloudFormation
     participant S3 as S3 캐시
     participant ASG as ASG
     participant GPU as EC2 GPU (boot.sh)
 
-    Dev->>CLI: tf up qwen3-coder-30b
+    Dev->>CLI: tkf up qwen3-coder-30b
     CLI->>CFN: 스택 없으면 cdk deploy (minCapacity=0, GPU 0대)
     CLI->>CLI: 상태 저장 (~/.token-forge/state.json)
     CLI->>S3: .complete 마커 확인
@@ -130,14 +130,14 @@ sequenceDiagram
     GPU->>S3: s5cmd로 가중치 로드 (캐시 부팅 약 8분)
     GPU-->>CLI: 200/401 응답 → READY
     Note over CLI,ASG: 타임아웃 시 desired=0으로 되돌림 (비용 가드)
-    Dev->>CLI: tf connect claude
+    Dev->>CLI: tkf connect claude
     CLI-->>Dev: ~/.token-forge/env.sh (0600)<br/>ANTHROPIC_BASE_URL·AUTH_TOKEN·MODEL
 ```
 
 비용 가드가 곳곳에 박혀 있는 이유: 이 프로젝트가 다루는 GPU는 시간당 $2.6(g6e.12xlarge)
 에서 $30-50(p5.48xlarge)까지 나간다. 그래서 ① 스택 생성과 GPU 기동을 분리하고
 (`minCapacity=0`), ② 시딩은 저가 CPU 스팟이 하고, ③ 유휴 30분이면 Lambda가 자동
-정지하고, ④ `tf up` 타임아웃·실패 경로마다 desired를 0으로 되돌린다.
+정지하고, ④ `tkf up` 타임아웃·실패 경로마다 desired를 0으로 되돌린다.
 
 ## 6. EC2 부팅 내부 — boot.sh
 
@@ -180,11 +180,11 @@ flowchart LR
 
 ## 8. 다음 단계 — 배치 엔진과 병렬 레이스 (R10, 구현 중)
 
-지금까지는 사용자가 리전을 골랐다. 2단계에서는 `tf up`이 리전을 자동으로 고른다:
+지금까지는 사용자가 리전을 골랐다. 2단계에서는 `tkf up`이 리전을 자동으로 고른다:
 
 ```mermaid
 flowchart TB
-    UP["tf up <model>  (--region 생략)"] --> GATHER["배치 엔진: 후보 수집<br/>피드 48h 평균 · RTT(24h 캐시) · 스팟가 · 쿼터"]
+    UP["tkf up <model>  (--region 생략)"] --> GATHER["배치 엔진: 후보 수집<br/>피드 48h 평균 · RTT(24h 캐시) · 스팟가 · 쿼터"]
     GATHER --> RANK["서열화: 확보 안정성 → 레이턴시 → 가격<br/>(동치 임계값: 점수 차 < 1, RTT 차 < 30ms)"]
     RANK --> K["상위 K개 리전 (기본 2)<br/>스택·시딩 보장"]
     K --> RACE["병렬 레이스: 동시 desired=1"]

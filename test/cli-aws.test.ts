@@ -1,9 +1,10 @@
 import { mockClient } from 'aws-sdk-client-mock';
 import { CloudFormationClient, DescribeStacksCommand, ListStackResourcesCommand } from '@aws-sdk/client-cloudformation';
 import { AutoScalingClient, SetDesiredCapacityCommand, UpdateAutoScalingGroupCommand, DescribeAutoScalingGroupsCommand } from '@aws-sdk/client-auto-scaling';
-import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
+import { EC2Client, DescribeInstancesCommand, DescribeInstanceTypesCommand, DescribeSpotPriceHistoryCommand, GetSpotPlacementScoresCommand } from '@aws-sdk/client-ec2';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { ServiceQuotasClient, GetServiceQuotaCommand } from '@aws-sdk/client-service-quotas';
 import { AwsApi } from '../cli/aws';
 
 const cfnMock = mockClient(CloudFormationClient);
@@ -11,7 +12,8 @@ const asgMock = mockClient(AutoScalingClient);
 const ec2Mock = mockClient(EC2Client);
 const smMock = mockClient(SecretsManagerClient);
 const s3Mock = mockClient(S3Client);
-beforeEach(() => { cfnMock.reset(); asgMock.reset(); ec2Mock.reset(); smMock.reset(); s3Mock.reset(); });
+const sqMock = mockClient(ServiceQuotasClient);
+beforeEach(() => { cfnMock.reset(); asgMock.reset(); ec2Mock.reset(); smMock.reset(); s3Mock.reset(); sqMock.reset(); });
 
 test('getStackOutputs — 스택 출력 맵 반환, 미존재 시 null', async () => {
   cfnMock.on(DescribeStacksCommand, { StackName: 'S1' }).resolves({
@@ -59,6 +61,25 @@ test('getAsgStatus — desired와 instanceIds 반환', async () => {
   expect(await api.getAsgStatus('asg-xyz')).toEqual({
     desired: 2,
     instanceIds: ['i-001', 'i-002'],
+    inServiceIds: ['i-001', 'i-002'],
+  });
+});
+
+test('getAsgStatus — launching 인스턴스는 instanceIds에는 포함되지만 inServiceIds에서는 제외', async () => {
+  asgMock.on(DescribeAutoScalingGroupsCommand, { AutoScalingGroupNames: ['asg-launching'] }).resolves({
+    AutoScalingGroups: [{
+      AutoScalingGroupName: 'asg-launching',
+      DesiredCapacity: 1,
+      Instances: [
+        { InstanceId: 'i-001', AvailabilityZone: 'ap-ne-2a', LifecycleState: 'Pending', HealthStatus: 'Healthy', ProtectedFromScaleIn: false } as any,
+      ],
+    } as any],
+  });
+  const api = new AwsApi('ap-northeast-2');
+  expect(await api.getAsgStatus('asg-launching')).toEqual({
+    desired: 1,
+    instanceIds: ['i-001'],
+    inServiceIds: [],
   });
 });
 
@@ -113,4 +134,39 @@ test('headObject — 404는 false', async () => {
   const api = new AwsApi('ap-northeast-2');
   expect(await api.headObject('b', 'k')).toBe(false);
   expect(await api.headObject('b', 'k')).toBe(true);
+});
+
+describe('배치 엔진용 확장 메서드', () => {
+  beforeEach(() => { sqMock.reset(); });
+
+  test('getSpotVcpuQuota: g 패밀리는 L-3819A6DF', async () => {
+    sqMock.on(GetServiceQuotaCommand, { ServiceCode: 'ec2', QuotaCode: 'L-3819A6DF' })
+      .resolves({ Quota: { Value: 192 } });
+    expect(await new AwsApi('ap-northeast-1').getSpotVcpuQuota('g')).toBe(192);
+  });
+
+  test('getVcpuCount', async () => {
+    ec2Mock.on(DescribeInstanceTypesCommand).resolves({
+      InstanceTypes: [{ InstanceType: 'g6e.12xlarge', VCpuInfo: { DefaultVCpus: 48 } }] as never,
+    });
+    expect(await new AwsApi('ap-northeast-1').getVcpuCount('g6e.12xlarge')).toBe(48);
+  });
+
+  test('getCurrentSpotPrice: 최신 최저가, 없으면 null', async () => {
+    ec2Mock.on(DescribeSpotPriceHistoryCommand).resolves({
+      SpotPriceHistory: [{ SpotPrice: '2.9' }, { SpotPrice: '2.61' }] as never,
+    });
+    expect(await new AwsApi('ap-northeast-1').getCurrentSpotPrice('g6e.12xlarge')).toBe(2.61);
+    ec2Mock.on(DescribeSpotPriceHistoryCommand).resolves({ SpotPriceHistory: [] });
+    expect(await new AwsApi('ap-northeast-1').getCurrentSpotPrice('g6e.12xlarge')).toBeNull();
+  });
+
+  test('getPlacementScore: 해당 리전 점수, 없으면 null', async () => {
+    ec2Mock.on(GetSpotPlacementScoresCommand).resolves({
+      SpotPlacementScores: [{ Region: 'ap-northeast-1', Score: 7 }] as never,
+    });
+    expect(await new AwsApi('ap-northeast-1').getPlacementScore(['g6e.12xlarge'], 'ap-northeast-1')).toBe(7);
+    ec2Mock.on(GetSpotPlacementScoresCommand).resolves({ SpotPlacementScores: [] });
+    expect(await new AwsApi('ap-northeast-1').getPlacementScore(['g6e.12xlarge'], 'ap-northeast-1')).toBeNull();
+  });
 });

@@ -73,7 +73,7 @@ test('READY 전 유휴 강등(desired=0)을 감지하면 복구한다', async ()
   expect(restored.filter((x) => x === 1).length).toBeGreaterThanOrEqual(2);
 });
 
-test('스택 보장 직후 saveState를 먼저 호출한다 (이후 단계 실패해도 tf down이 대상을 찾도록)', async () => {
+test('스택 보장 직후 saveState를 먼저 호출한다 (이후 단계 실패해도 tkf down이 대상을 찾도록)', async () => {
   const saved: unknown[] = [];
   const d = deps({
     api: {
