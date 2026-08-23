@@ -67,14 +67,23 @@ cdk 컨텍스트와 scripts/*.sh를 직접 다루는 대신 통합 CLI를 쓸 �
 ```bash
 npm install && npm run build && npm link   # tkf 명령 설치
 tkf model list                              # 검증된 모델 카탈로그
-tkf up qwen3-coder-30b --region ap-northeast-2   # 스택·시딩 자동 준비 후 기동
+tkf placement qwen3-coder-30b               # 리전 추천 표 (배치점수 48h·RTT·가격·쿼터)
+tkf up qwen3-coder-30b                      # 리전 자동 선정 + 병렬 레이스 기동 (R10)
+tkf up qwen3-coder-30b --region ap-northeast-2   # 리전 직접 지정
 tkf status                                  # 상태 확인
 tkf connect claude                          # Claude Code 연결 (source ~/.token-forge/env.sh)
-tkf down                                    # GPU 정지 (--purge: 완전 삭제)
+tkf down                                    # GPU 정지 (--purge: 완전 삭제, --region: 대상 지정)
+tkf config set standby single               # 스탠바이 정책: race(기본, K=2) | single | lazy
 ```
 
+`--region`을 생략하면 배치 엔진이 공개 피드의 48시간 배치점수 평균, EC2 엔드포인트
+RTT(24h 캐시), 스팟 가격, 계정 쿼터를 종합해 후보 리전을 서열화하고(안정성 → 레이턴시
+→ 가격), 상위 K개 리전에 동시에 스팟을 요청해 먼저 확보한 리전만 남긴다(First-Acquired-
+Wins). 피드가 대상 타입을 커버하지 않으면 실시간 배치점수로 자동 폴백한다.
+
 첫 `up`은 선시딩 포함 약 20분, 이후에는 캐시 부팅으로 약 8분(스팟 즉시 배정 기준).
-리전 자동 선택(배치점수 기반)은 로드맵 참조.
+프라이버시 모드는 `tkf config set feedUrl <자가 수집기 URL>`로 피드 조회조차 자기 계정
+안에서 해결할 수 있다.
 
 ## 배포
 
