@@ -161,6 +161,7 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 - **통합 CLI** (`tkf up/down/status/model/connect`) — 1단계 완료, 위의 tkf CLI 절 참고
 - **지능형 배치(R10)** — 배치점수 추이·레이턴시·가격·쿼터로 최적 리전을 자동 선정하고,
   후보 리전들에 병렬로 확보를 시도해 먼저 잡힌 곳만 남기는 레이스(First-Acquired-Wins)
+  — 2단계 완료, 위의 tkf CLI 절 참고
 - **바이브 코딩 1급 지원** — Anthropic 호환 API(`/v1/messages`), prefix caching,
   Claude Code 도구 호출까지 실배포 검증 완료
 - **전송 보안(R11)** — TLS 종단, API 키 회전, 소스 IP 허용목록
