@@ -15,7 +15,7 @@ export interface UpDeps {
 
 export async function ensureStackReady(
   opts: UpOpts,
-  d: Pick<UpDeps, 'api' | 'exec' | 'log'>,
+  d: Pick<UpDeps, 'api' | 'exec' | 'log' | 'saveState'>,
 ): Promise<{ outputs: Record<string, string>; stackName: string }> {
   const stackName = stackNameFor(opts.model, opts.profile);
 
@@ -31,6 +31,8 @@ export async function ensureStackReady(
     outputs = await d.api.getStackOutputs(stackName);
     if (!outputs) throw new Error('배포 후에도 스택 출력을 읽을 수 없습니다');
   }
+  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tf down이 대상을 찾을 수 있도록 (비용 가드)
+  d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
 
   // ② 가중치 시딩 보장 (스펙 R8: 첫 기동은 선시딩 포함 약 20분)
   const modelKey = outputs.WeightsRepo.replace(/\//g, '_');
@@ -83,8 +85,6 @@ export async function waitReady(
 
 export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string }> {
   const { outputs, stackName } = await ensureStackReady(opts, d);
-  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tf down이 대상을 찾을 수 있도록 (비용 가드)
-  d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
 
   const { endpoint } = await waitReady({ stackName, outputs }, d);
   d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
