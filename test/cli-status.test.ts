@@ -26,3 +26,10 @@ test('무인증 프로브가 401이어도 READY로 표시 (vLLM --api-key 기동
   const lines = await runStatus({ api: fakeApi(), state, probe: async () => 401 });
   expect(lines.join('\n')).toContain('READY');
 });
+
+test('프로브가 403이면 차단됨(allowedCidrs)으로 표시하고 READY/부팅 중과 구분한다', async () => {
+  const lines = await runStatus({ api: fakeApi(), state, probe: async () => 403 });
+  expect(lines.join('\n')).toContain('차단됨');
+  expect(lines.join('\n')).toContain('allowedCidrs');
+  expect(lines.join('\n')).not.toContain('READY');
+});

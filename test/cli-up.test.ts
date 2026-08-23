@@ -110,6 +110,25 @@ test('READY 폴링 타임아웃 시 desired=0으로 되돌리고 에러 메시�
   expect(restored).toContain(0);
 });
 
+test('연속 403 3회 감지 시 조기 실패하고 desired=0으로 복원한다 (allowedCidrs 안내 포함, 스팟 부족으로 오진단하지 않음)', async () => {
+  const restored: number[] = [];
+  const d = deps({
+    api: {
+      getStackOutputs: async () => ({ EndpointUrl: 'http://alb', ApiKeySecretArn: 'arn:sec',
+        WeightsBucketName: 'bkt', WeightsRepo: 'Org/Repo' }),
+      getAsgName: async () => 'asg-1',
+      getAsgStatus: async () => ({ desired: 1, instanceIds: ['i-1'] }),
+      setDesired: async (_a: string, n: number) => { restored.push(n); },
+      getSecret: async () => 'KEY',
+      headObject: async () => true,
+    },
+    probeAuth: async () => 403, // allowedCidrs 밖 — 영원히 403, 200은 오지 않음
+    timeoutMs: 60000, // 타임아웃보다 먼저 3연속 403 판정으로 실패해야 함
+  });
+  await expect(runUp(opts, d)).rejects.toThrow('allowedCidrs');
+  expect(restored).toContain(0);
+});
+
 test('타임아웃 후 setDesired(0) 자체가 실패하면 desired=1 잔존 사실을 메시지에 포함한다', async () => {
   const d = deps({
     api: {

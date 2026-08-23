@@ -61,12 +61,29 @@ export async function waitReady(
   const key = await d.api.getSecret(outputs.ApiKeySecretArn);
   const deadline = Date.now() + d.timeoutMs;
   let acquired = false;
+  let consecutive403 = 0;
   while (Date.now() < deadline) {
     const code = await d.probeAuth(`${outputs.EndpointUrl}/v1/models`, key);
     if (code === 200) {
       d.log(`READY — ${outputs.EndpointUrl}`);
       d.log('다음: tkf connect claude');
       return { endpoint: outputs.EndpointUrl };
+    }
+    // 403은 CloudFront 엣지 차단(allowedCidrs 허용목록 밖)이며 절대 READY로 전환되지 않으므로
+    // 연속 3회 관측되면 스팟 용량 부족으로 오진단하지 않고 즉시 실패한다 (401은 무시 — READY 신호).
+    if (code === 403) {
+      consecutive403 += 1;
+      if (consecutive403 >= 3) {
+        let restoreMsg = '용량은 0으로 되돌렸습니다';
+        try {
+          await d.api.setDesired(asgName, 0);
+        } catch (e) {
+          restoreMsg = `용량을 0으로 되돌리는 데 실패해 desired=1이 남아있을 수 있습니다: ${(e as Error).message}`;
+        }
+        throw new Error(`엔드포인트가 403을 반환합니다 — allowedCidrs 허용목록에 현재 IP가 포함되는지 확인하세요 (${restoreMsg})`);
+      }
+    } else {
+      consecutive403 = 0;
     }
     const st = await d.api.getAsgStatus(asgName);
     if (st.desired === 0) {           // 유휴 가드 강등 감지 → 복구 (스펙 교훈 반영)
