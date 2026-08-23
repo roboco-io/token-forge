@@ -86,6 +86,7 @@ export function buildProgram(): Command {
       const file = path.join(os.homedir(), '.token-forge', 'env.sh');
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, env, { mode: 0o600 }); // API 키 포함 — 소유자만 읽기
+      fs.chmodSync(file, 0o600); // 기존 파일도 0600으로 보장
       console.log(`기록됨: ${file}`);
       console.log(`적용:   source ${file} && claude`);
     });
