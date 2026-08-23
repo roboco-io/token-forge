@@ -374,4 +374,22 @@ describe('R11: allowedCidrs 소스 IP 허용목록', () => {
     expect(code).toContain('203.0.113.0/24');
     expect(code).toContain('198.51.100.7/32');
   });
+
+  test('불량 CIDR(마스크 NaN)이면 synth 시 명확한 오류로 실패한다', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '203.0.113.0/abc' } });
+    expect(() => makeTemplateWithContext(app)).toThrow(/allowedCidrs.*잘못된 CIDR/);
+  });
+
+  test('옥텟·마스크 범위를 벗어나면 synth 시 오류로 실패한다', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '999.0.113.0/24' } });
+    expect(() => makeTemplateWithContext(app)).toThrow(/allowedCidrs/);
+  });
+
+  test('마스크 없는 단일 IPv4는 /32로 자동 보정되어 함수 코드에 들어간다', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '203.0.113.7' } });
+    const t = makeTemplateWithContext(app);
+    const fns = t.findResources('AWS::CloudFront::Function');
+    const code = JSON.stringify(fns);
+    expect(code).toContain('203.0.113.7/32');
+  });
 });

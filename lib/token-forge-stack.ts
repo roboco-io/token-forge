@@ -23,6 +23,23 @@ export interface TokenForgeStackProps extends cdk.StackProps {
   resolvedProfile: ResolvedProfile;
 }
 
+// allowedCidrs 항목 검증: 마스크 없는 단일 IPv4는 /32로 보정, 그 외 형식·범위 오류는 synth에서 즉시 실패
+// (오타 CIDR을 CloudFront Function에 그대로 심으면 전 트래픽이 조용히 403 처리되는 사고를 막는다).
+function normalizeCidr(raw: string): string {
+  const trimmed = raw.trim();
+  const candidate = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed) ? `${trimmed}/32` : trimmed;
+  const m = candidate.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (!m) {
+    throw new Error(`allowedCidrs: 잘못된 CIDR "${raw}" — IPv4 CIDR(예: 203.0.113.0/24) 또는 단일 IP(예: 203.0.113.7)만 허용합니다`);
+  }
+  const octets = [m[1], m[2], m[3], m[4]].map(Number);
+  const mask = Number(m[5]);
+  if (octets.some((o) => o < 0 || o > 255) || mask < 0 || mask > 32) {
+    throw new Error(`allowedCidrs: 잘못된 CIDR "${raw}" — 옥텟은 0-255, 마스크는 0-32 범위여야 합니다`);
+  }
+  return candidate;
+}
+
 export class TokenForgeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: TokenForgeStackProps) {
     super(scope, id, props);
@@ -210,7 +227,7 @@ export class TokenForgeStack extends cdk.Stack {
     const allowedCidrs = this.node.tryGetContext('allowedCidrs');
     let ipAllowFn: cloudfront.Function | undefined;
     if (allowedCidrs) {
-      const cidrs = String(allowedCidrs).split(',').map((c) => c.trim());
+      const cidrs = String(allowedCidrs).split(',').map((c) => normalizeCidr(c));
       // CloudFront Functions(cloudfront-js-2.0)에서 도는 IPv4 CIDR 매칭 — 허용목록 외 403
       const fnCode = [
         `var CIDRS = ${JSON.stringify(cidrs)};`,
