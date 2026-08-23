@@ -1,4 +1,4 @@
-import { runSeed, SeedDeps } from '../cli/commands/seed';
+import { runSeed, mkSeedEnsure, SeedDeps } from '../cli/commands/seed';
 import { Candidate } from '../cli/placement/engine';
 
 const cands: Candidate[] = [
@@ -79,4 +79,24 @@ test('시딩 전 리전당 비용 고지', async () => {
   const log = jest.fn();
   await runSeed({ model: 'qwen3-coder-30b', profile: 'int4', region: 'ap-northeast-2' }, makeDeps({ log }));
   expect(log.mock.calls.some((c) => String(c[0]).includes('리전당 비용'))).toBe(true);
+});
+
+// 회귀 방지: program.ts가 실제 ensureStackReady 배선을 직접 조립하다가 real saveState를
+// 주입한 사고(Critical 리뷰)를 재발시키지 않도록, mkSeedEnsure 자체가 no-op을 강제하는지
+// 실제 ensureStackReady 경로를 태워 검증한다 (배선이 program.ts 밖으로 나오므로 테스트로 갭이 닫힘).
+test('mkSeedEnsure는 주입된 saveState를 호출하지 않는다 (배포 추적 오염 방지)', async () => {
+  const saveState = jest.fn();
+  const log = jest.fn();
+  const exec = jest.fn(async () => 0);
+  const api = {
+    getStackOutputs: jest.fn(async () => ({ WeightsRepo: 'org/model', WeightsBucketName: 'bucket' })),
+    headObject: jest.fn(async () => true), // 이미 캐시됨 — 생성/시딩 분기 모두 스킵
+  };
+  const mkDeps = () => ({ api, exec, log, saveState } as never);
+  const ensure = mkSeedEnsure('qwen3-coder-30b', 'int4', mkDeps);
+  await ensure('ap-northeast-2');
+  expect(api.getStackOutputs).toHaveBeenCalledTimes(1);
+  expect(api.headObject).toHaveBeenCalledTimes(1);
+  expect(exec).not.toHaveBeenCalled(); // 캐시 히트 — 생성/시딩 exec 불필요
+  expect(saveState).not.toHaveBeenCalled(); // 핵심: 주입된 saveState가 실행되지 않아야 함
 });

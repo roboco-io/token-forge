@@ -9,7 +9,7 @@ import { AwsApi } from './aws';
 import { loadState, saveState, clearState, removeRegionFromState } from './state';
 import { runStatus } from './commands/status';
 import { runUp, runUpAuto, ensureStackReady, waitReady } from './commands/up';
-import { runSeed, SeedChoice } from './commands/seed';
+import { runSeed, mkSeedEnsure, SeedChoice } from './commands/seed';
 import { runDown } from './commands/down';
 import { renderClaudeEnv } from './commands/connect';
 import { loadModelProfile } from '../lib/model-profile';
@@ -125,7 +125,7 @@ export function buildProgram(): Command {
         }),
         thresholds: { score: cfg.scoreTieThreshold, rttMs: cfg.rttTieThresholdMs },
         k: cfg.k,
-        ensure: async (region) => { await ensureStackReady({ model, profile, region }, mkUpDeps(region)); },
+        ensure: mkSeedEnsure(model, profile, mkUpDeps),
         select: async (choices: SeedChoice[]) => {
           if (!process.stdout.isTTY) {
             console.error('비-TTY 환경입니다 — --region <r>을 지정하세요');

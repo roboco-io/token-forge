@@ -1,4 +1,5 @@
 import { Candidate, rank } from '../placement/engine';
+import { ensureStackReady, UpDeps } from './up';
 
 export interface SeedChoice { region: string; label: string; checked: boolean }
 
@@ -10,6 +11,24 @@ export interface SeedDeps {
   ensure: (region: string) => Promise<void>;
   select: (choices: SeedChoice[]) => Promise<string[]>;
   log: (m: string) => void;
+}
+
+/**
+ * ensureStackReady를 seed 전용으로 감싼 클로저 팩토리 (program.ts가 이것만 조립해 쓴다).
+ * seed는 배포 추적(state.json)을 절대 건드리지 않는다 — 다른 리전에서 up이 GPU를
+ * 가동 중일 때 seed로 또 다른 리전을 건드리면 실제 saveState가 state.json을 그
+ * 리전으로 덮어써 tkf down(기본 대상 = state.region)이 엉뚱한(GPU 없는) 리전을
+ * 내리고 활성 GPU는 비용 가드에서 놓쳐 방치된다. 그래서 주입된 saveState를 여기서
+ * 강제로 no-op으로 덮어써 program.ts 배선 실수로도 오염될 수 없게 한다.
+ */
+export function mkSeedEnsure(
+  model: string,
+  profile: string,
+  mkDeps: (region: string) => Pick<UpDeps, 'api' | 'exec' | 'log' | 'saveState'>,
+): (region: string) => Promise<void> {
+  return async (region: string) => {
+    await ensureStackReady({ model, profile, region }, { ...mkDeps(region), saveState: () => {} });
+  };
 }
 
 /** placement 표 행과 같은 정보 밀도의 라벨 (순위·48h점수·RTT·가격·캐시·출처) */
