@@ -100,6 +100,9 @@ cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-
 어느 리전·시간대에 스팟이 잘 잡히는지는 위의 **공개 대시보드**를 먼저 확인하면
 실패 루프를 크게 줄일 수 있다.
 
+기존 배포를 이 버전으로 업데이트하면 EndpointUrl이 https로 바뀌므로 `tkf connect claude`를
+다시 실행해야 한다.
+
 첫 부팅은 HF 다운로드 + S3 시딩으로 오래 걸린다(INT4 약 150GB).
 이후 재프로비저닝은 S3 캐시에서 s5cmd 로드로 단축(목표 약 15분).
 
@@ -154,7 +157,8 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 
 오토스케일링 없음(min1/max1), 웹 UI 없음. 엔드포인트는 CloudFront 경유 HTTPS가 기본이며
 (도메인 불요), ALB 직접 접근은 오리진 검증 헤더가 없어 403이다. 소스 IP 허용목록은
-`-c allowedCidrs=`로 켠다.
+`-c allowedCidrs=`로 켠다. 비스트리밍 요청은 CloudFront 응답 대기 상한(60초)의 적용을
+받으므로 장시간 생성은 스트리밍(stream)을 사용할 것.
 
 ## 프로젝트 방향
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 사용법: scripts/smoke-test.sh http://<alb-dns> <api-key>
+# 사용법: scripts/smoke-test.sh https://<EndpointUrl 출력값> <api-key>
 # 실 배포 후 수동 실행 (비용상 CI 제외)
 set -euo pipefail
 
