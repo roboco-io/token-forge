@@ -7,6 +7,7 @@ import { AwsApi } from './aws';
 import { loadState, saveState } from './state';
 import { runStatus } from './commands/status';
 import { runUp } from './commands/up';
+import { runDown } from './commands/down';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -54,6 +55,14 @@ export function buildProgram(): Command {
         sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
       });
+    });
+
+  program.command('down')
+    .description('GPU 정지 (--purge: 스택·가중치 캐시까지 완전 삭제)')
+    .option('--purge', '완전 삭제', false)
+    .action(async (o: { purge: boolean }) => {
+      const state = requireState();
+      console.log(await runDown(state, o.purge, { api: new AwsApi(state.region), exec: execInherit }));
     });
 
   return program;
