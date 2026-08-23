@@ -13,6 +13,7 @@ import { runDown } from './commands/down';
 import { renderClaudeEnv } from './commands/connect';
 import { loadModelProfile } from '../lib/model-profile';
 import { stackNameFor } from '../lib/naming';
+import { loadConfig, saveConfig } from './config';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -90,6 +91,32 @@ export function buildProgram(): Command {
       console.log(`기록됨: ${file}`);
       console.log(`적용:   source ${file} && claude`);
     });
+
+  const config = program.command('config').description('CLI 설정 (~/.token-forge/config.json)');
+  config.command('get [key]').description('설정 조회').action((key?: string) => {
+    const c = loadConfig();
+    if (!key) { console.log(JSON.stringify(c, null, 2)); return; }
+    if (!(key in c)) { console.error(`알 수 없는 키: ${key}`); process.exit(1); }
+    console.log(String(c[key as keyof typeof c]));
+  });
+  config.command('set <key> <value>').description('설정 변경').action((key: string, value: string) => {
+    const c = loadConfig();
+    if (key === 'standby') {
+      if (!['race', 'single', 'lazy'].includes(value)) { console.error('standby는 race|single|lazy'); process.exit(1); }
+      c.standby = value as typeof c.standby;
+    } else if (key === 'k') {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > 4) { console.error('k는 1-4 정수'); process.exit(1); }
+      c.k = n;
+    } else if (key === 'feedUrl') { c.feedUrl = value; }
+    else if (key === 'scoreTieThreshold' || key === 'rttTieThresholdMs') {
+      const n = Number(value);
+      if (!(n >= 0)) { console.error(`${key}는 0 이상 숫자`); process.exit(1); }
+      c[key] = n;
+    } else { console.error(`알 수 없는 키: ${key}`); process.exit(1); }
+    saveConfig(c);
+    console.log(`설정됨: ${key}=${value}`);
+  });
 
   return program;
 }
