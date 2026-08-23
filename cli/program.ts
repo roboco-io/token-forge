@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { spawn } from 'child_process';
 import * as pkg from '../package.json';
 import { listModels, defaultProfile } from './catalog';
@@ -8,6 +10,9 @@ import { loadState, saveState } from './state';
 import { runStatus } from './commands/status';
 import { runUp } from './commands/up';
 import { runDown } from './commands/down';
+import { renderClaudeEnv } from './commands/connect';
+import { loadModelProfile } from '../lib/model-profile';
+import { stackNameFor } from '../lib/naming';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -63,6 +68,26 @@ export function buildProgram(): Command {
     .action(async (o: { purge: boolean }) => {
       const state = requireState();
       console.log(await runDown(state, o.purge, { api: new AwsApi(state.region), exec: execInherit }));
+    });
+
+  program.command('connect <client>')
+    .description('클라이언트 연결 설정 생성 (지원: claude)')
+    .option('--print', '파일 기록 없이 stdout으로만 출력', false)
+    .action(async (client: string, o: { print: boolean }) => {
+      if (client !== 'claude') { console.error(`미지원 클라이언트: ${client} (지원: claude)`); process.exit(1); }
+      const state = requireState();
+      const api = new AwsApi(state.region);
+      const outputs = await api.getStackOutputs(stackNameFor(state.model, state.profile));
+      if (!outputs) { console.error('스택 없음 — 먼저 tf up을 실행하세요.'); process.exit(1); }
+      const key = await api.getSecret(outputs.ApiKeySecretArn);
+      const served = loadModelProfile(MODELS_DIR, state.model, state.profile).weightsRepo;
+      const env = renderClaudeEnv(outputs.EndpointUrl, key, served);
+      if (o.print) { console.log(env); return; }
+      const file = path.join(os.homedir(), '.token-forge', 'env.sh');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, env, { mode: 0o600 }); // API 키 포함 — 소유자만 읽기
+      console.log(`기록됨: ${file}`);
+      console.log(`적용:   source ${file} && claude`);
     });
 
   return program;
