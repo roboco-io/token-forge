@@ -123,16 +123,22 @@ export async function runUpAuto(opts: { model: string; profile: string }, d: UpA
     prepared.push({ cand, outputs, stackName, asgName: await d.asgNameFor(cand.region, stackName) });
   }
 
+  // 레이스(최대 30분) 중 중단되어도 tkf down이 전 후보 리전을 찾을 수 있도록,
+  // standbyRegions를 포함한 상태를 레이스 호출 전에 잠정 저장한다 (region은 잠정 top 1위).
+  const prev = d.loadState?.() ?? null;
+  const standbyRegions = top.map((c) => c.region);
+  let lastUsed = { ...(prev?.lastUsed ?? {}), [prepared[0].cand.region]: d.now().toISOString() };
+  d.saveState({ model: opts.model, profile: opts.profile, region: prepared[0].cand.region, standbyRegions, lastUsed });
+
   let winner = prepared[0];
   if (prepared.length > 1) {
     const w = await d.race(prepared.map((p) => ({ region: p.cand.region, asgName: p.asgName, endpointUrl: p.outputs.EndpointUrl })));
     winner = prepared.find((p) => p.cand.region === w.region)!;
   }
 
-  const prev = d.loadState?.() ?? null;
-  const lastUsed = { ...(prev?.lastUsed ?? {}), [winner.cand.region]: d.now().toISOString() };
+  lastUsed = { ...lastUsed, [winner.cand.region]: d.now().toISOString() };
   const state: TfState = { model: opts.model, profile: opts.profile, region: winner.cand.region,
-    standbyRegions: top.map((c) => c.region), lastUsed };
+    standbyRegions, lastUsed };
   d.saveState(state);
 
   const { endpoint } = await d.wait({ stackName: winner.stackName, outputs: winner.outputs, region: winner.cand.region });

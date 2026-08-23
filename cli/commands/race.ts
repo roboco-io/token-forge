@@ -37,7 +37,11 @@ export async function runRace(entrants: RaceEntrant[], d: RaceDeps): Promise<Rac
     }
     await d.sleep(15000);
   }
-  // 타임아웃: 전 후보 취소 (비용 가드 최우선 원칙)
-  await Promise.all(entrants.map((e) => d.apiFor(e.region).setDesired(e.asgName, 0).catch(() => {})));
-  throw new Error(`레이스 타임아웃(${Math.round(d.timeoutMs / 60000)}분) — 전 후보 리전에서 스팟 확보 실패. 용량을 0으로 되돌렸습니다`);
+  // 타임아웃: 전 후보 취소 (비용 가드 최우선 원칙) — 취소 실패 리전은 오류 메시지에 보고
+  const results = await Promise.allSettled(entrants.map((e) => d.apiFor(e.region).setDesired(e.asgName, 0)));
+  const failed = entrants.filter((_, i) => results[i].status === 'rejected');
+  const restoreMsg = failed.length === 0
+    ? '용량을 0으로 되돌렸습니다'
+    : `단, ${failed.map((e) => e.region).join(', ')}은(는) 되돌리기 실패 — tkf down --region <r>로 정리 필요`;
+  throw new Error(`레이스 타임아웃(${Math.round(d.timeoutMs / 60000)}분) — 전 후보 리전에서 스팟 확보 실패. ${restoreMsg}`);
 }

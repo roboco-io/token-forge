@@ -53,3 +53,17 @@ test('타임아웃 시 전 후보 desired=0 후 오류', async () => {
   await expect(runRace(entrants, zeroDeps)).rejects.toThrow('레이스 타임아웃');
   expect(calls.filter((c) => c === '0')).toHaveLength(2); // 두 후보 모두 취소
 });
+
+test('타임아웃 시 일부 리전 취소 실패하면 오류 메시지에 해당 리전과 대처법 포함', async () => {
+  const failDeps: RaceDeps = {
+    apiFor: (region: string) => ({
+      setDesired: async (_asg: string, n: number) => {
+        if (region === 'ap-northeast-2' && n === 0) throw new Error('throttled');
+      },
+      getAsgStatus: async () => ({ desired: 1, instanceIds: [] }),
+    }),
+    probe: async () => 0, log: () => {},
+    sleep: async () => {}, timeoutMs: 0,
+  };
+  await expect(runRace(entrants, failDeps)).rejects.toThrow(/ap-northeast-2.*되돌리기 실패.*tkf down --region/);
+});

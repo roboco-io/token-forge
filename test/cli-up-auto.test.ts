@@ -44,6 +44,24 @@ test('race 모드(기본): 상위 K=2 준비 → 레이스 → 승자에서 READ
   expect(st.lastUsed['ap-northeast-2']).toBe('2026-08-23T12:00:00.000Z');
 });
 
+test('레이스 시작 전에 standbyRegions가 저장된다', async () => {
+  const snapshots: unknown[][] = [];
+  const { deps, saved } = makeDeps({
+    race: async (entrants: { region: string }[]) => {
+      // race 스텁 호출 시점 — 이미 saved에 standbyRegions 포함 잠정 상태가 있어야 함
+      snapshots.push([...saved]);
+      return entrants[0] as never;
+    },
+  });
+  await runUpAuto({ model: 'm', profile: 'p' }, deps as never);
+  expect(snapshots).toHaveLength(1);
+  const savedBeforeRace = snapshots[0] as { region: string; standbyRegions: string[] }[];
+  expect(savedBeforeRace.length).toBeGreaterThan(0);
+  const pre = savedBeforeRace[savedBeforeRace.length - 1];
+  expect(pre.standbyRegions).toEqual(['ap-northeast-2', 'ap-northeast-1']);
+  expect(pre.region).toBe('ap-northeast-2'); // 잠정 top 1위
+});
+
 test('single 모드: 1위 리전만, 레이스 없음', async () => {
   const { deps, ensured, raced } = makeDeps({ config: { ...DEFAULT_CONFIG, standby: 'single' } });
   const r = await runUpAuto({ model: 'm', profile: 'p' }, deps as never);
