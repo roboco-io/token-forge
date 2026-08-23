@@ -72,7 +72,11 @@ export class AwsApi {
       const list = await this.s3.send(new ListObjectsV2Command({ Bucket: bucket }));
       const keys = (list.Contents ?? []).map((o) => ({ Key: o.Key! }));
       if (keys.length === 0) break;
-      await this.s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys } }));
+      const result = await this.s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys } }));
+      if ((result.Errors ?? []).length > 0) {
+        const errors = result.Errors!.map((e) => `${e.Key}: ${e.Code}`).join(', ');
+        throw new Error(`버킷 ${bucket} 객체 삭제 실패: ${errors}`);
+      }
       if (!list.IsTruncated) break;
     }
     await this.s3.send(new DeleteBucketCommand({ Bucket: bucket }));
