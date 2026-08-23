@@ -1,26 +1,33 @@
 # token-forge
 
-Hugging Face 오픈소스 LLM을 AWS **100% 스팟 인스턴스**로 저렴하게 서빙하는 AWS CDK 템플릿
-— 그리고 어느 리전에서 GPU 스팟을 확보할 수 있는지 알려주는 **공개 스팟 인텔리전스 피드**.
+**내 AWS 계정 안에서 도는 프라이빗 바이브 코딩 LLM.** 오픈 웨이트 모델을 **100% 스팟
+인스턴스**로 값싸게 서빙하고, 상시 수집되는 **공개 스팟 인텔리전스 피드**(배치점수 추이)로
+"어느 리전에서 GPU 스팟이 잡히는가"를 데이터로 푼다. Claude Code 등 코딩 에이전트가
+바로 붙는 OpenAI·Anthropic 호환 API를 제공하며, 프롬프트·응답·사용량 통계는 계정 밖으로
+나가지 않는다.
 
-- 초기 타겟 모델: [upstage/Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B)
-  (250B MoE) — **p5.48xlarge(8×H100)와 g6e.48xlarge(8×L40S) 스팟에서 실서빙 검증 완료**
-- 스팟의 어려움(리전별 가용성 변동, 인터럽션, 콜드부팅)을 CDK 스택 + 운영 스크립트 +
-  배치점수 수집기로 정면 대응하는 것이 이 프로젝트의 주제
+**검증된 모델 카탈로그** (전부 실서빙 검증):
 
-> 설계 문서: [docs/superpowers/specs/2026-07-23-token-forge-design.md](docs/superpowers/specs/2026-07-23-token-forge-design.md)
+| 모델 | 급 | 인스턴스 | 비고 |
+|---|---|---|---|
+| [Qwen3-Coder-30B](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8) | 30B MoE | g6e.12xlarge (약 $2.6/h 스팟) | 권장 기본 — 월 $100-200 목표의 기준 |
+| [GLM-4.6](https://huggingface.co/zai-org/GLM-4.6-FP8) | 355B MoE | p5.48xlarge | 대형 선택지 |
+| [Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B) | 250B MoE | p5.48xlarge / g6e.48xlarge | 전용 vLLM 포크 사용 |
+
+> 제품 방향: [PR/FAQ](docs/prfaq.md) · 요건: [v1 요건 정의](docs/superpowers/specs/2026-08-22-token-forge-v1-requirements.md) · 초기 설계: [2026-07-23 설계 문서](docs/superpowers/specs/2026-07-23-token-forge-design.md)
 
 ## 아키텍처
 
 ```
 사용자 ──HTTP──> ALB ──> ASG(min1/max1, 100% Spot·capacity-optimized, 멀티 AZ·다중 타입 후보)
-                             └─ EC2: DLAMI + Docker(upstage/vllm-solar-open2)
+                             └─ EC2: DLAMI + Docker(vLLM — 모델 yaml의 vllmImage)
                                   ├─ 부팅: S3 가중치 캐시 → 없으면 HF 다운로드 후 S3 시딩
-                                  └─ vLLM OpenAI 호환 서버 (--api-key = Secrets Manager)
+                                  └─ vLLM 서버: /v1/chat/completions(OpenAI) + /v1/messages(Anthropic)
+                                     (--api-key = Secrets Manager, prefix caching 기본)
 ```
 
-모델·인스턴스 조합은 `models/<model>.yaml`의 프로파일로 선택한다
-(예: `int4` = p5.48xlarge, `int4-g6e` = g6e.48xlarge, `bf16` = p5 BF16).
+모델·인스턴스 조합은 `models/<model>.yaml`의 프로파일로 선택한다. 메인라인 vLLM이
+기본이고, 전용 포크가 필요한 모델(예: Solar Open2)만 yaml에서 이미지를 바꾼다.
 
 ## 스팟 인텔리전스 공개 대시보드·데이터 피드
 
@@ -35,12 +42,14 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
 
 ## 사전 조건
 
-- **스팟 vCPU 쿼터 192개** (48xlarge 1대 기준) — 대부분 계정 기본 0. Service Quotas에서
-  p5는 "All P Spot Instance Requests"(L-7212CCBC), g6e는 "All G and VT Spot Instance
-  Requests"(L-3819A6DF) 상향 신청 필요. 신규 계정은 부분 승인이 흔하므로
-  **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)** 의 어필 문안 작성법 참고.
-- 비용 참고 (스팟, 리전·시점 변동): p5.48xlarge 약 **$30-50/hr**, g6e.48xlarge 약
-  **$10-13/hr**. 사용 후 `cdk destroy` 권장.
+- **스팟 vCPU 쿼터** — 대부분 계정 기본 0. 30B급(g6e.12xlarge)은 **48개**, 48xlarge
+  대형 모델은 **192개** 필요. Service Quotas에서 p5는 "All P Spot Instance
+  Requests"(L-7212CCBC), g6e는 "All G and VT Spot Instance Requests"(L-3819A6DF) 상향
+  신청. 신규 계정은 부분 승인이 흔하므로 **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)**
+  의 어필 문안 작성법 참고.
+- 비용 참고 (스팟, 리전·시점 변동): g6e.12xlarge 약 **$2.6/hr**, g6e.48xlarge 약
+  **$10-13/hr**, p5.48xlarge 약 **$30-50/hr**. 유휴 자동 정지가 기본이지만 장기
+  미사용 시 `cdk destroy` 권장.
 - Node 20+, AWS CDK CLI (`npm i -g aws-cdk`), 부트스트랩된 계정(`cdk bootstrap`).
 
 ## tf CLI (권장 인터페이스)
@@ -123,19 +132,21 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 
 ## 스코프 (YAGNI)
 
-오토스케일링 없음(min1/max1), 웹 UI 없음, HTTPS는 도메인+ACM 필요로 향후 과제
-(현재 HTTP + API 키 — 민감 데이터에는 사용 금지).
+오토스케일링 없음(min1/max1), 웹 UI 없음. TLS는 v1 요건(R11)으로 확정되어 구현 예정
+— 현재는 HTTP + API 키이므로 민감 데이터에는 사용 금지.
 
 ## 프로젝트 방향
 
 목표는 **현존·미래의 오픈 웨이트 LLM을 스팟으로 값싸게, 그러면서도 안정적으로 쓰는
-플랫폼**이다. 지금의 token-forge는 "한 리전에 한 스택"이지만, 다음 단계로:
+프라이빗 LLM 플랫폼**이다. [v1 요건(R1-R11)](docs/superpowers/specs/2026-08-22-token-forge-v1-requirements.md)이
+확정되어 단계적으로 구현 중:
 
-- **멀티리전·멀티AZ 오케스트레이션** — 수집된 배치점수 추이로 안정 리전·AZ를 골라
-  레플리카를 배치하고, 흔들리면 선제 이동 (공개 대시보드·데이터 피드는 그 첫 단계)
-- **바이브 코딩 지원** — Anthropic 호환 API(`/v1/messages`), prefix caching, 장컨텍스트로
-  Claude Code 같은 코딩 에이전트를 자기 인프라의 모델로 돌릴 수 있게
-- **모델 불가지론** — 메인라인 vLLM 기본, 전용 포크가 필요한 모델(예: Solar Open2)만 예외
+- **통합 CLI** (`tf up/down/status/model/connect`) — 1단계 완료, 위의 tf CLI 절 참고
+- **지능형 배치(R10)** — 배치점수 추이·레이턴시·가격·쿼터로 최적 리전을 자동 선정하고,
+  후보 리전들에 병렬로 확보를 시도해 먼저 잡힌 곳만 남기는 레이스(First-Acquired-Wins)
+- **바이브 코딩 1급 지원** — Anthropic 호환 API(`/v1/messages`), prefix caching,
+  Claude Code 도구 호출까지 실배포 검증 완료
+- **전송 보안(R11)** — TLS 종단, API 키 회전, 소스 IP 허용목록
 
 이런 운영을 직접 하고 싶지 않다면(매니지드 형태에 관심이 있다면) 이슈로 의견을 남겨 달라.
 사용 사례가 로드맵을 결정한다.
