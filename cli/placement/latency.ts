@@ -29,7 +29,14 @@ interface LatencyCache { [region: string]: { rttMs: number; measuredAt: string }
 /** 24h 로컬 캐시 우선, 미스·만료 시 측정 후 저장 */
 export async function getRtt(region: string, d: { connect: Connector; dir: string; now: () => Date }): Promise<number> {
   const file = path.join(d.dir, 'latency.json');
-  const cache: LatencyCache = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  let cache: LatencyCache = {};
+  if (fs.existsSync(file)) {
+    try {
+      cache = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      cache = {}; // 손상된 캐시 파일 — 캐시 미스로 처리해 측정을 계속 진행 (스펙: RTT 측정 봉쇄 금지)
+    }
+  }
   const hit = cache[region];
   if (hit && d.now().getTime() - new Date(hit.measuredAt).getTime() < 24 * 3600 * 1000) return hit.rttMs;
   const rttMs = await measureRtt(region, d.connect);

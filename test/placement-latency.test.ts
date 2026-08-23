@@ -42,4 +42,12 @@ describe('getRtt (24h 캐시)', () => {
     const connect = async () => 7;
     expect(await getRtt('us-east-1', { connect, dir, now: () => NOW })).toBe(7);
   });
+
+  test('손상된 캐시 파일은 캐시 미스로 처리해 측정을 계속 진행', async () => {
+    fs.writeFileSync(path.join(dir, 'latency.json'), '{ 이건 유효한 JSON이 아님 ');
+    const connect = async () => 55;
+    expect(await getRtt('us-east-1', { connect, dir, now: () => NOW })).toBe(55);
+    const cache = JSON.parse(fs.readFileSync(path.join(dir, 'latency.json'), 'utf8'));
+    expect(cache['us-east-1'].rttMs).toBe(55); // 손상 파일이 정상 캐시로 덮어써짐
+  });
 });
