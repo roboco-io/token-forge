@@ -95,9 +95,10 @@ export function buildProgram(): Command {
 }
 
 function execInherit(cmd: string, args: string[]): Promise<number> {
-  return new Promise((resolve) => {
-    const p = spawn(cmd, args, { stdio: 'inherit' });
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: 'inherit', cwd: path.join(__dirname, '..') });
     p.on('close', (code) => resolve(code ?? 1));
+    p.on('error', (e) => reject(e));
   });
 }
 
