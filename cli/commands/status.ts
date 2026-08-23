@@ -18,6 +18,7 @@ export async function runStatus({ api, state, probe }: Deps): Promise<string[]> 
   const type = await api.getInstanceType(instanceIds[0]);
   const code = await probe(`${outputs.EndpointUrl}/v1/models`);
   lines.push(`인스턴스: ${instanceIds[0]} (${type})`);
-  lines.push(code === 200 ? `READY — ${outputs.EndpointUrl}` : `부팅 중 (엔드포인트 ${code || '연결 불가'})`);
+  // vLLM은 --api-key로 기동되므로 무인증 프로브는 살아있어도 401을 반환한다 (401도 READY 신호).
+  lines.push(code === 200 || code === 401 ? `READY — ${outputs.EndpointUrl}` : `부팅 중 (엔드포인트 ${code || '연결 불가'})`);
   return lines;
 }

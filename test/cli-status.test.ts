@@ -21,3 +21,8 @@ test('스택 없으면 안내', async () => {
   const lines = await runStatus({ api: fakeApi({ getStackOutputs: async () => null }), state, probe: async () => 0 });
   expect(lines.join('\n')).toContain('스택 없음');
 });
+
+test('무인증 프로브가 401이어도 READY로 표시 (vLLM --api-key 기동 시 정상 응답)', async () => {
+  const lines = await runStatus({ api: fakeApi(), state, probe: async () => 401 });
+  expect(lines.join('\n')).toContain('READY');
+});
