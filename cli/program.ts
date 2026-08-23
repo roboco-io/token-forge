@@ -1,7 +1,7 @@
-const { Command } = require('commander');
-const pkg = require('../package.json');
+import { Command } from 'commander';
+import * as pkg from '../package.json';
 
-export function buildProgram(): any {
+export function buildProgram(): Command {
   const program = new Command();
   program
     .name('tf')
