@@ -52,12 +52,17 @@ export class AwsApi {
     }
   }
 
-  async getAsgStatus(asgName: string): Promise<{ desired: number; instanceIds: string[] }> {
+  async getAsgStatus(asgName: string): Promise<{ desired: number; instanceIds: string[]; inServiceIds: string[] }> {
     const out = await this.asg.send(new DescribeAutoScalingGroupsCommand(
       { AutoScalingGroupNames: [asgName] }));
     const g = out.AutoScalingGroups?.[0];
     if (!g) throw new Error(`ASG ${asgName} 없음`);
-    return { desired: g.DesiredCapacity ?? 0, instanceIds: (g.Instances ?? []).map((i) => i.InstanceId!) };
+    const instances = g.Instances ?? [];
+    return {
+      desired: g.DesiredCapacity ?? 0,
+      instanceIds: instances.map((i) => i.InstanceId!),
+      inServiceIds: instances.filter((i) => i.LifecycleState === 'InService').map((i) => i.InstanceId!),
+    };
   }
 
   async getInstanceType(instanceId: string): Promise<string> {

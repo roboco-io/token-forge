@@ -61,6 +61,25 @@ test('getAsgStatus — desired와 instanceIds 반환', async () => {
   expect(await api.getAsgStatus('asg-xyz')).toEqual({
     desired: 2,
     instanceIds: ['i-001', 'i-002'],
+    inServiceIds: ['i-001', 'i-002'],
+  });
+});
+
+test('getAsgStatus — launching 인스턴스는 instanceIds에는 포함되지만 inServiceIds에서는 제외', async () => {
+  asgMock.on(DescribeAutoScalingGroupsCommand, { AutoScalingGroupNames: ['asg-launching'] }).resolves({
+    AutoScalingGroups: [{
+      AutoScalingGroupName: 'asg-launching',
+      DesiredCapacity: 1,
+      Instances: [
+        { InstanceId: 'i-001', AvailabilityZone: 'ap-ne-2a', LifecycleState: 'Pending', HealthStatus: 'Healthy', ProtectedFromScaleIn: false } as any,
+      ],
+    } as any],
+  });
+  const api = new AwsApi('ap-northeast-2');
+  expect(await api.getAsgStatus('asg-launching')).toEqual({
+    desired: 1,
+    instanceIds: ['i-001'],
+    inServiceIds: [],
   });
 });
 

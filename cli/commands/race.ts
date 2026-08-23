@@ -12,8 +12,9 @@ export interface RaceDeps {
 
 /**
  * 전 후보 desired=1 동시 설정 → 첫 InService(인스턴스 확보) 리전이 승자 → 패자 즉시 desired=0.
- * 승자 판정은 부팅 완료가 아니라 확보 시점 (스펙: 패자를 부팅 전에 취소해 낭비 0 수렴).
- * 레이스 중 강등 복구·핑은 참여 전 후보에 적용 (스펙: 레이스 시작부터 승자 확정 시까지).
+ * 승자 판정은 부팅 완료가 아니라 확보 시점이되, launching 상태는 아직 확보로 보지 않는다
+ * (스펙 R10: launching이 실패할 수 있으므로 InService 확정 전에 패자를 취소하면 재확보 기회를
+ * 잃는다). 레이스 중 강등 복구·핑은 참여 전 후보에 적용 (스펙: 레이스 시작부터 승자 확정 시까지).
  */
 export async function runRace(entrants: RaceEntrant[], d: RaceDeps): Promise<RaceEntrant> {
   await Promise.all(entrants.map((e) => d.apiFor(e.region).setDesired(e.asgName, 1)));
@@ -23,7 +24,7 @@ export async function runRace(entrants: RaceEntrant[], d: RaceDeps): Promise<Rac
   while (Date.now() < deadline) {
     for (const e of entrants) {
       const st = await d.apiFor(e.region).getAsgStatus(e.asgName);
-      if (st.instanceIds.length > 0) {
+      if (st.inServiceIds.length > 0) {
         const losers = entrants.filter((x) => x !== e);
         await Promise.all(losers.map((l) => d.apiFor(l.region).setDesired(l.asgName, 0)));
         d.log(`승자: ${e.region} (패자 ${losers.map((l) => l.region).join(', ') || '없음'} 취소)`);
