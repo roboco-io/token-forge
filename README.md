@@ -68,6 +68,7 @@ cdk 컨텍스트와 scripts/*.sh를 직접 다루는 대신 통합 CLI를 쓸 �
 npm install && npm run build && npm link   # tkf 명령 설치
 tkf model list                              # 검증된 모델 카탈로그
 tkf placement qwen3-coder-30b               # 리전 추천 표 (배치점수 48h·RTT·가격·쿼터)
+tkf seed qwen3-coder-30b                    # 가중치 S3 선시딩만 (GPU 0대, 리전 선택 프롬프트)
 tkf up qwen3-coder-30b                      # 리전 자동 선정 + 병렬 레이스 기동 (R10)
 tkf up qwen3-coder-30b --region ap-northeast-2   # 리전 직접 지정
 tkf status                                  # 상태 확인
