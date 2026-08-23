@@ -93,3 +93,45 @@ test('launching(instanceIds에는 있으나 InService 아님)만으로는 승자
   expect(winner.region).toBe('ap-northeast-2');
   expect(calls).toContain('ap-northeast-1:desired=0'); // 패자(launching만 있던 apne1) 취소
 });
+
+test('레이스 시작 시 일부 리전 desired=1 실패 → 고지 후 나머지 리전만으로 레이스 계속', async () => {
+  const calls: string[] = [];
+  const logs: string[] = [];
+  const deps: RaceDeps = {
+    apiFor: (region: string) => ({
+      setDesired: async (_asg: string, n: number) => {
+        if (region === 'ap-northeast-1' && n === 1) throw new Error('capacity error');
+        calls.push(`${region}:desired=${n}`);
+      },
+      getAsgStatus: async () => {
+        if (region === 'ap-northeast-1') throw new Error('시작 실패 리전은 폴링 대상에서 제외돼야 함');
+        return { desired: 1, instanceIds: ['i-2'], inServiceIds: ['i-2'] };
+      },
+    }),
+    probe: async (u: string) => {
+      if (u.includes('e1')) throw new Error('시작 실패 리전은 핑 대상에서 제외돼야 함');
+      return 0;
+    },
+    sleep: async () => {}, log: (m: string) => logs.push(m),
+    timeoutMs: 60_000,
+  };
+  const winner = await runRace(entrants, deps);
+  expect(winner.region).toBe('ap-northeast-2'); // 성공한 리전만으로 레이스 진행 → 자연스레 승자
+  expect(logs.some((l) => l.includes('ap-northeast-1') && l.includes('기동 설정 실패'))).toBe(true);
+  expect(calls).not.toContain('ap-northeast-1:desired=0'); // 애초에 desired=1 아니므로 취소 대상 아님
+});
+
+test('레이스 시작 시 전 리전 desired=1 실패 → 오류(정리 호출 없음)', async () => {
+  const calls: string[] = [];
+  const deps: RaceDeps = {
+    apiFor: (region: string) => ({
+      setDesired: async () => { calls.push(region); throw new Error(`${region} capacity error`); },
+      getAsgStatus: async () => { throw new Error('호출되면 안 됨 — 폴링 진입 전에 중단돼야 함'); },
+    }),
+    probe: async () => { throw new Error('호출되면 안 됨'); },
+    sleep: async () => {}, log: () => {},
+    timeoutMs: 60_000,
+  };
+  await expect(runRace(entrants, deps)).rejects.toThrow(/레이스 시작 실패/);
+  expect(calls).toEqual(['ap-northeast-1', 'ap-northeast-2']); // 시작 시도(desired=1)만, 취소(desired=0) 없음
+});
