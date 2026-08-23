@@ -25,7 +25,7 @@ const MODELS_DIR = path.join(__dirname, '..', 'models');
 export function buildProgram(): Command {
   const program = new Command();
   program
-    .name('tf')
+    .name('tkf')
     .description('token-forge — 내 AWS 계정 안의 프라이빗 바이브 코딩 LLM')
     .version(pkg.version);
 
@@ -39,7 +39,7 @@ export function buildProgram(): Command {
   /** 상태 파일 필수 로드 — 없으면 사용법 안내 후 종료 */
   function requireState() {
     const s = loadState();
-    if (!s) { console.error('기록된 대상이 없습니다. 먼저 tf up <model>을 실행하세요.'); process.exit(1); }
+    if (!s) { console.error('기록된 대상이 없습니다. 먼저 tkf up <model>을 실행하세요.'); process.exit(1); }
     return s;
   }
 
@@ -115,7 +115,7 @@ export function buildProgram(): Command {
       const state = requireState();
       const api = new AwsApi(state.region);
       const outputs = await api.getStackOutputs(stackNameFor(state.model, state.profile));
-      if (!outputs) { console.error('스택 없음 — 먼저 tf up을 실행하세요.'); process.exit(1); }
+      if (!outputs) { console.error('스택 없음 — 먼저 tkf up을 실행하세요.'); process.exit(1); }
       const key = await api.getSecret(outputs.ApiKeySecretArn);
       const served = loadModelProfile(MODELS_DIR, state.model, state.profile).weightsRepo;
       const env = renderClaudeEnv(outputs.EndpointUrl, key, served);

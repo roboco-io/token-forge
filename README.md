@@ -60,17 +60,17 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
   미사용 시 `cdk destroy` 권장.
 - Node 20+, AWS CDK CLI (`npm i -g aws-cdk`), 부트스트랩된 계정(`cdk bootstrap`).
 
-## tf CLI (권장 인터페이스)
+## tkf CLI (권장 인터페이스)
 
 cdk 컨텍스트와 scripts/*.sh를 직접 다루는 대신 통합 CLI를 쓸 수 있다:
 
 ```bash
-npm install && npm run build && npm link   # tf 명령 설치
-tf model list                              # 검증된 모델 카탈로그
-tf up qwen3-coder-30b --region ap-northeast-2   # 스택·시딩 자동 준비 후 기동
-tf status                                  # 상태 확인
-tf connect claude                          # Claude Code 연결 (source ~/.token-forge/env.sh)
-tf down                                    # GPU 정지 (--purge: 완전 삭제)
+npm install && npm run build && npm link   # tkf 명령 설치
+tkf model list                              # 검증된 모델 카탈로그
+tkf up qwen3-coder-30b --region ap-northeast-2   # 스택·시딩 자동 준비 후 기동
+tkf status                                  # 상태 확인
+tkf connect claude                          # Claude Code 연결 (source ~/.token-forge/env.sh)
+tkf down                                    # GPU 정지 (--purge: 완전 삭제)
 ```
 
 첫 `up`은 선시딩 포함 약 20분, 이후에는 캐시 부팅으로 약 8분(스팟 즉시 배정 기준).
@@ -149,7 +149,7 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 프라이빗 LLM 플랫폼**이다. [v1 요건(R1-R11)](docs/superpowers/specs/2026-08-22-token-forge-v1-requirements.md)이
 확정되어 단계적으로 구현 중:
 
-- **통합 CLI** (`tf up/down/status/model/connect`) — 1단계 완료, 위의 tf CLI 절 참고
+- **통합 CLI** (`tkf up/down/status/model/connect`) — 1단계 완료, 위의 tkf CLI 절 참고
 - **지능형 배치(R10)** — 배치점수 추이·레이턴시·가격·쿼터로 최적 리전을 자동 선정하고,
   후보 리전들에 병렬로 확보를 시도해 먼저 잡힌 곳만 남기는 레이스(First-Acquired-Wins)
 - **바이브 코딩 1급 지원** — Anthropic 호환 API(`/v1/messages`), prefix caching,

@@ -34,7 +34,7 @@ export async function ensureStackReady(
     outputs = await d.api.getStackOutputs(stackName);
     if (!outputs) throw new Error('배포 후에도 스택 출력을 읽을 수 없습니다');
   }
-  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tf down이 대상을 찾을 수 있도록 (비용 가드)
+  // 스택 보장 직후 상태 저장 — 이후 단계에서 실패해도 tkf down이 대상을 찾을 수 있도록 (비용 가드)
   d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
 
   // ② 가중치 시딩 보장 (스펙 R8: 첫 기동은 선시딩 포함 약 20분)
@@ -65,7 +65,7 @@ export async function waitReady(
     const code = await d.probeAuth(`${outputs.EndpointUrl}/v1/models`, key);
     if (code === 200) {
       d.log(`READY — ${outputs.EndpointUrl}`);
-      d.log('다음: tf connect claude');
+      d.log('다음: tkf connect claude');
       return { endpoint: outputs.EndpointUrl };
     }
     const st = await d.api.getAsgStatus(asgName);
@@ -83,7 +83,7 @@ export async function waitReady(
   } catch (e) {
     restoreMsg = `용량을 0으로 되돌리는 데 실패해 desired=1이 남아있을 수 있습니다: ${(e as Error).message}`;
   }
-  throw new Error(`타임아웃(30분) — 스팟 용량 부족 가능성. ${restoreMsg} 다른 리전으로 tf up --region <r>을 시도하세요`);
+  throw new Error(`타임아웃(30분) — 스팟 용량 부족 가능성. ${restoreMsg} 다른 리전으로 tkf up --region <r>을 시도하세요`);
 }
 
 export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string }> {
@@ -140,7 +140,7 @@ export async function runUpAuto(opts: { model: string; profile: string }, d: UpA
   // lazy: 패자 스택 정리 제안 (자동 삭제 금지 — 설계 결정 4)
   if (d.config.standby === 'lazy') {
     for (const p of prepared.filter((x) => x !== winner)) {
-      d.log(`lazy 모드 — 대기 스택 정리: tf down --purge --region ${p.cand.region}`);
+      d.log(`lazy 모드 — 대기 스택 정리: tkf down --purge --region ${p.cand.region}`);
     }
   }
   // 캐시 보유 리전 상한(설계 결정 5) 초과 시 LRU 정리 제안
@@ -149,7 +149,7 @@ export async function runUpAuto(opts: { model: string; profile: string }, d: UpA
   const over = regions.length - cap;
   for (let i = 0; i < over; i++) {
     if (top.some((c) => c.region === regions[i][0])) continue; // 이번 후보는 제안 제외
-    d.log(`가중치 캐시 보유 리전이 상한(${cap})을 초과 — 정리 제안: tf down --purge --region ${regions[i][0]}`);
+    d.log(`가중치 캐시 보유 리전이 상한(${cap})을 초과 — 정리 제안: tkf down --purge --region ${regions[i][0]}`);
   }
   return { endpoint, region: winner.cand.region };
 }

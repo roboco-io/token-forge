@@ -55,7 +55,7 @@ test('single 모드: 1위 리전만, 레이스 없음', async () => {
 test('lazy 모드: 레이스 후 패자 정리 제안 로그', async () => {
   const { deps, log } = makeDeps({ config: { ...DEFAULT_CONFIG, standby: 'lazy' } });
   await runUpAuto({ model: 'm', profile: 'p' }, deps as never);
-  expect(log.some((l) => l.includes('tf down --purge --region ap-northeast-1'))).toBe(true);
+  expect(log.some((l) => l.includes('tkf down --purge --region ap-northeast-1'))).toBe(true);
 });
 
 test('캐시 상한 초과 시 LRU 정리 제안', async () => {

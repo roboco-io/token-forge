@@ -18,7 +18,7 @@ export function listModels(modelsDir: string): CatalogEntry[] {
 export function defaultProfile(modelsDir: string, model: string): string {
   const entry = listModels(modelsDir).find((m) => m.model === model);
   if (!entry || entry.profiles.length === 0) {
-    throw new Error(`모델 "${model}"을 카탈로그에서 찾을 수 없습니다. tf model list로 확인하세요.`);
+    throw new Error(`모델 "${model}"을 카탈로그에서 찾을 수 없습니다. tkf model list로 확인하세요.`);
   }
   return entry.profiles[0];
 }

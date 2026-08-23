@@ -15,7 +15,7 @@ export async function runDown(state: TfState, purge: boolean, d: Deps): Promise<
   if (!purge) {
     const asgName = await d.api.getAsgName(stackName);
     await d.api.setDesired(asgName, 0);
-    return `정지 완료 (GPU 비용 0) — 스택·가중치 캐시는 유지, 재기동은 tf up`;
+    return `정지 완료 (GPU 비용 0) — 스택·가중치 캐시는 유지, 재기동은 tkf up`;
   }
   const bucket = outputs.WeightsBucketName;
   const code = await d.exec('npx', ['cdk', 'destroy', '--force',
