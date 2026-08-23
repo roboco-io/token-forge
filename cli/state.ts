@@ -2,7 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-export interface TfState { model: string; profile: string; region: string }
+export interface TfState {
+  model: string;
+  profile: string;
+  region: string;
+  standbyRegions?: string[];
+  lastUsed?: Record<string, string>;
+}
 
 const DEFAULT_DIR = path.join(os.homedir(), '.token-forge');
 

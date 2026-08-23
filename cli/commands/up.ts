@@ -1,6 +1,9 @@
 import { AwsApi } from '../aws';
 import { stackNameFor } from '../../lib/naming';
 import { TfState } from '../state';
+import { TfConfig } from '../config';
+import { Candidate, rank } from '../placement/engine';
+import { RaceEntrant } from './race';
 
 export interface UpOpts { model: string; profile: string; region: string }
 export interface UpDeps {
@@ -89,4 +92,64 @@ export async function runUp(opts: UpOpts, d: UpDeps): Promise<{ endpoint: string
   const { endpoint } = await waitReady({ stackName, outputs }, d);
   d.saveState({ model: opts.model, profile: opts.profile, region: opts.region });
   return { endpoint };
+}
+
+export interface UpAutoDeps {
+  config: TfConfig;
+  gather: () => Promise<{ cands: Candidate[]; notices: string[] }>;
+  /** ensureStackReady를 리전만 바꿔 호출하는 클로저 (program.ts에서 조립) */
+  ensure: (o: { model: string; profile: string; region: string }) => Promise<{ outputs: Record<string, string>; stackName: string }>;
+  asgNameFor: (region: string, stackName: string) => Promise<string>;
+  race: (entrants: RaceEntrant[]) => Promise<RaceEntrant>;
+  wait: (a: { stackName: string; outputs: Record<string, string>; region: string }) => Promise<{ endpoint: string }>;
+  saveState: (s: TfState) => void;
+  loadState?: () => TfState | null;
+  log: (m: string) => void;
+  now: () => Date;
+}
+
+export async function runUpAuto(opts: { model: string; profile: string }, d: UpAutoDeps): Promise<{ endpoint: string; region: string }> {
+  const { cands, notices } = await d.gather();
+  notices.forEach(d.log);
+  const ranked = rank(cands, { score: d.config.scoreTieThreshold, rttMs: d.config.rttTieThresholdMs });
+  const k = d.config.standby === 'single' ? 1 : Math.min(d.config.k, ranked.length);
+  const top = ranked.slice(0, k);
+  d.log(`후보 선정: ${top.map((c, i) => `${i + 1}. ${c.region}(점수 ${c.score.toFixed(1)})`).join('  ')}`);
+
+  // 스택·시딩은 순차 보장 — cdk.out 충돌 방지 (설계 결정 6)
+  const prepared: { cand: Candidate; outputs: Record<string, string>; stackName: string; asgName: string }[] = [];
+  for (const cand of top) {
+    const { outputs, stackName } = await d.ensure({ model: opts.model, profile: opts.profile, region: cand.region });
+    prepared.push({ cand, outputs, stackName, asgName: await d.asgNameFor(cand.region, stackName) });
+  }
+
+  let winner = prepared[0];
+  if (prepared.length > 1) {
+    const w = await d.race(prepared.map((p) => ({ region: p.cand.region, asgName: p.asgName, endpointUrl: p.outputs.EndpointUrl })));
+    winner = prepared.find((p) => p.cand.region === w.region)!;
+  }
+
+  const prev = d.loadState?.() ?? null;
+  const lastUsed = { ...(prev?.lastUsed ?? {}), [winner.cand.region]: d.now().toISOString() };
+  const state: TfState = { model: opts.model, profile: opts.profile, region: winner.cand.region,
+    standbyRegions: top.map((c) => c.region), lastUsed };
+  d.saveState(state);
+
+  const { endpoint } = await d.wait({ stackName: winner.stackName, outputs: winner.outputs, region: winner.cand.region });
+
+  // lazy: 패자 스택 정리 제안 (자동 삭제 금지 — 설계 결정 4)
+  if (d.config.standby === 'lazy') {
+    for (const p of prepared.filter((x) => x !== winner)) {
+      d.log(`lazy 모드 — 대기 스택 정리: tf down --purge --region ${p.cand.region}`);
+    }
+  }
+  // 캐시 보유 리전 상한(설계 결정 5) 초과 시 LRU 정리 제안
+  const cap = d.config.standby === 'race' ? d.config.k : d.config.standby === 'single' ? 1 : 2;
+  const regions = Object.entries(lastUsed).sort(([, a], [, b]) => a.localeCompare(b)); // 오래된 순
+  const over = regions.length - cap;
+  for (let i = 0; i < over; i++) {
+    if (top.some((c) => c.region === regions[i][0])) continue; // 이번 후보는 제안 제외
+    d.log(`가중치 캐시 보유 리전이 상한(${cap})을 초과 — 정리 제안: tf down --purge --region ${regions[i][0]}`);
+  }
+  return { endpoint, region: winner.cand.region };
 }

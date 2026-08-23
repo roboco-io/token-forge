@@ -8,7 +8,7 @@ import { listModels, defaultProfile } from './catalog';
 import { AwsApi } from './aws';
 import { loadState, saveState } from './state';
 import { runStatus } from './commands/status';
-import { runUp } from './commands/up';
+import { runUp, runUpAuto, ensureStackReady, waitReady } from './commands/up';
 import { runDown } from './commands/down';
 import { renderClaudeEnv } from './commands/connect';
 import { loadModelProfile } from '../lib/model-profile';
@@ -17,6 +17,8 @@ import { loadConfig, saveConfig } from './config';
 import { runPlacement } from './commands/placement';
 import { fetchFeed } from './placement/feed';
 import { getRtt, tcpConnector } from './placement/latency';
+import { gatherCandidates } from './placement/engine';
+import { runRace } from './commands/race';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -54,16 +56,47 @@ export function buildProgram(): Command {
   });
 
   program.command('up <model>')
-    .description('스팟 LLM 기동 (스택·시딩 자동 준비)')
+    .description('스팟 LLM 기동 — 리전 생략 시 배치 엔진이 자동 선정 + 병렬 레이스')
     .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
-    .option('--region <r>', 'AWS 리전', 'ap-northeast-2')
-    .action(async (model: string, o: { profile?: string; region: string }) => {
+    .option('--region <r>', 'AWS 리전 (지정 시 해당 리전만 사용)')
+    .action(async (model: string, o: { profile?: string; region?: string }) => {
       const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
-      await runUp({ model, profile, region: o.region }, {
-        api: new AwsApi(o.region), exec: execInherit, probeAuth,
-        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-        saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+      if (o.region) { // 기존 단일 리전 경로 (동작 불변)
+        await runUp({ model, profile, region: o.region }, {
+          api: new AwsApi(o.region), exec: execInherit, probeAuth,
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+        });
+        return;
+      }
+      const cfg = loadConfig();
+      const rp = loadModelProfile(MODELS_DIR, model, profile);
+      const types = rp.instanceType.split(',');
+      const stackName = stackNameFor(model, profile);
+      const tfDir = path.join(os.homedir(), '.token-forge');
+      const mkUpDeps = (region: string) => ({
+        api: new AwsApi(region), exec: execInherit, probeAuth,
+        sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+        saveState, log: (m: string) => console.log(m), timeoutMs: 30 * 60 * 1000,
       });
+      const r = await runUpAuto({ model, profile }, {
+        config: cfg,
+        gather: () => gatherCandidates({ types, stackName, weightsRepo: rp.weightsRepo }, {
+          config: cfg, fetchFeed: (u) => fetchFeed(u), apiFor: (rg) => new AwsApi(rg),
+          getRtt: (rg) => getRtt(rg, { connect: tcpConnector, dir: tfDir, now: () => new Date() }),
+          now: () => new Date(),
+        }),
+        ensure: (eo) => ensureStackReady(eo, mkUpDeps(eo.region)),
+        asgNameFor: (region, sn) => new AwsApi(region).getAsgName(sn),
+        race: (entrants) => runRace(entrants, {
+          apiFor: (rg) => new AwsApi(rg), probe,
+          sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
+          log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+        }),
+        wait: (a) => waitReady({ stackName: a.stackName, outputs: a.outputs }, mkUpDeps(a.region)),
+        saveState, loadState, log: (m) => console.log(m), now: () => new Date(),
+      });
+      console.log(`완료 — ${r.region} / ${r.endpoint}`);
     });
 
   program.command('down')
