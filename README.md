@@ -39,8 +39,8 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
   p5는 "All P Spot Instance Requests"(L-7212CCBC), g6e는 "All G and VT Spot Instance
   Requests"(L-3819A6DF) 상향 신청 필요. 신규 계정은 부분 승인이 흔하므로
   **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)** 의 어필 문안 작성법 참고.
-- 비용 참고 (스팟, 리전·시점 변동): p5.48xlarge 약 **$30~50/hr**, g6e.48xlarge 약
-  **$10~13/hr**. 사용 후 `cdk destroy` 권장.
+- 비용 참고 (스팟, 리전·시점 변동): p5.48xlarge 약 **$30-50/hr**, g6e.48xlarge 약
+  **$10-13/hr**. 사용 후 `cdk destroy` 권장.
 - Node 20+, AWS CDK CLI (`npm i -g aws-cdk`), 부트스트랩된 계정(`cdk bootstrap`).
 
 ## 배포
@@ -55,8 +55,8 @@ cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-
 어느 리전·시간대에 스팟이 잘 잡히는지는 위의 **공개 대시보드**를 먼저 확인하면
 실패 루프를 크게 줄일 수 있다.
 
-첫 부팅은 HF 다운로드 + S3 시딩으로 오래 걸린다(INT4 ~150GB).
-이후 재프로비저닝은 S3 캐시에서 s5cmd 로드로 단축(목표 ~15분).
+첫 부팅은 HF 다운로드 + S3 시딩으로 오래 걸린다(INT4 약 150GB).
+이후 재프로비저닝은 S3 캐시에서 s5cmd 로드로 단축(목표 약 15분).
 
 ### 새 모델 온보딩 — 가중치 선시딩 권장 (GPU 비용 절약)
 
@@ -65,8 +65,8 @@ cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-
 
 ```bash
 cdk deploy -c model=<m> -c profile=<p> -c region=<r> -c minCapacity=0  # 스택만 생성, GPU 0대
-scripts/seed-weights.sh <stack-name> <region>   # c6id 스팟(~$0.2/h)이 HF→S3 시딩 후 자동 종료
-scripts/start.sh <stack-name> <region>          # GPU는 S3 캐시로 ~15분 내 서비스
+scripts/seed-weights.sh <stack-name> <region>   # c6id 스팟(약 $0.2/h)이 HF→S3 시딩 후 자동 종료
+scripts/start.sh <stack-name> <region>          # GPU는 S3 캐시로 약 15분 내 서비스
 ```
 
 ## 사용
@@ -91,7 +91,7 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 | 30분 넘게 InService 0 (SNS 알람) | 스팟 쿼터/용량 부족. Service Quotas·공개 대시보드로 다른 리전 검토 |
 | g6e에서 vLLM이 CUDA 그래프 캡처 중 크래시 | INT4 MoE + TP=8은 `--enable-expert-parallel` 필수 (`int4-g6e` 프로파일에 포함됨) |
 | 인스턴스가 계속 교체됨 | SSM 세션 접속 → `cat /var/log/token-forge-boot.log`, `docker logs vllm` (OOM 등). vLLM 컨테이너 로그는 CloudWatch Logs 그룹 `/token-forge/vllm`에서도 확인 가능 (인스턴스 종료 후에도 보존) |
-| 스팟 중단 알림 수신 | 정상 — ASG가 자동 재프로비저닝. S3 캐시로 ~15분 내 복구 |
+| 스팟 중단 알림 수신 | 정상 — ASG가 자동 재프로비저닝. S3 캐시로 약 15분 내 복구 |
 | HF 다운로드 3회 실패 | 로그 확인 후 인스턴스 종료(ASG 교체) 또는 네트워크 점검 |
 
 ## 비용 절감 (실험용 운영)
@@ -100,8 +100,8 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
   간격 변경 `-c idleMinutes=60`, 비활성화 `-c idleMinutes=0`.
 - **수동 온/오프**:
   ```bash
-  scripts/stop.sh  <stack-name> <region>   # GPU 비용 정지 (ALB/S3만 유지, ~$16/월)
-  scripts/start.sh <stack-name> <region>   # 재기동 — S3 캐시로 수 분~15분 내 서비스 복귀
+  scripts/stop.sh  <stack-name> <region>   # GPU 비용 정지 (ALB/S3만 유지, 약 $16/월)
+  scripts/start.sh <stack-name> <region>   # 재기동 — S3 캐시로 수 분에서 15분 내 서비스 복귀
   ```
 - **장기 미사용**: `cdk destroy` 권장. S3 가중치 캐시는 Retain으로 남아 재배포 시 고속 부팅.
 
