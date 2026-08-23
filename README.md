@@ -18,16 +18,24 @@
 
 ## 아키텍처
 
-```
-사용자 ──HTTP──> ALB ──> ASG(min1/max1, 100% Spot·capacity-optimized, 멀티 AZ·다중 타입 후보)
-                             └─ EC2: DLAMI + Docker(vLLM — 모델 yaml의 vllmImage)
-                                  ├─ 부팅: S3 가중치 캐시 → 없으면 HF 다운로드 후 S3 시딩
-                                  └─ vLLM 서버: /v1/chat/completions(OpenAI) + /v1/messages(Anthropic)
-                                     (--api-key = Secrets Manager, prefix caching 기본)
+```mermaid
+flowchart LR
+    U["개발자 / Claude Code"] -- "HTTP + API 키" --> ALB
+    subgraph AWS["내 AWS 계정 (리전당 스택 1개)"]
+        ALB["ALB"] --> ASG["ASG min1/max1<br/>100% 스팟 · capacity-optimized<br/>멀티 AZ · 다중 타입 후보"]
+        ASG --> EC2["EC2 GPU<br/>DLAMI + Docker(vLLM)<br/>/v1/chat/completions + /v1/messages"]
+        EC2 <-- "가중치 캐시 로드/시딩" --> S3[("S3 버킷<br/>(Retain)")]
+        SM["Secrets Manager<br/>(API 키)"] -.-> EC2
+        IDLE["유휴 감시 Lambda<br/>30분 무요청 → 자동 정지"] -.-> ASG
+    end
 ```
 
 모델·인스턴스 조합은 `models/<model>.yaml`의 프로파일로 선택한다. 메인라인 vLLM이
 기본이고, 전용 포크가 필요한 모델(예: Solar Open2)만 yaml에서 이미지를 바꾼다.
+prefix caching이 기본이라 바이브 코딩의 반복 컨텍스트에 유리하다.
+
+> 내부 구조·부팅 시퀀스·수집기까지 포함한 상세 안내:
+> **[아키텍처 문서](docs/architecture.md)** (신규 참가자용, 다이어그램 중심)
 
 ## 스팟 인텔리전스 공개 대시보드·데이터 피드
 
