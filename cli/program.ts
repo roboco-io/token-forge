@@ -14,6 +14,9 @@ import { renderClaudeEnv } from './commands/connect';
 import { loadModelProfile } from '../lib/model-profile';
 import { stackNameFor } from '../lib/naming';
 import { loadConfig, saveConfig } from './config';
+import { runPlacement } from './commands/placement';
+import { fetchFeed } from './placement/feed';
+import { getRtt, tcpConnector } from './placement/latency';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -117,6 +120,24 @@ export function buildProgram(): Command {
     saveConfig(c);
     console.log(`설정됨: ${key}=${value}`);
   });
+
+  program.command('placement <model>')
+    .description('리전 추천 표시 (배치점수·레이턴시·가격·쿼터 종합)')
+    .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
+    .action(async (model: string, o: { profile?: string }) => {
+      const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
+      const rp = loadModelProfile(MODELS_DIR, model, profile);
+      const cfg = loadConfig();
+      const lines = await runPlacement(
+        { types: rp.instanceType.split(','), stackName: stackNameFor(model, profile), weightsRepo: rp.weightsRepo, k: cfg.k },
+        {
+          config: cfg, fetchFeed: (u) => fetchFeed(u), apiFor: (r) => new AwsApi(r),
+          getRtt: (r) => getRtt(r, { connect: tcpConnector, dir: path.join(os.homedir(), '.token-forge'), now: () => new Date() }),
+          now: () => new Date(),
+          thresholds: { score: cfg.scoreTieThreshold, rttMs: cfg.rttTieThresholdMs },
+        });
+      lines.forEach((l) => console.log(l));
+    });
 
   return program;
 }
