@@ -74,6 +74,7 @@ tkf up qwen3-coder-30b --region ap-northeast-2   # 리전 직접 지정
 tkf status                                  # 상태 확인
 tkf connect claude                          # Claude Code 연결 (source ~/.token-forge/env.sh)
 tkf down                                    # GPU 정지 (--purge: 완전 삭제, --region: 대상 지정)
+tkf rotate-key                             # API 키 회전 (가동 중이면 재기동 시 적용)
 tkf config set standby single               # 스탠바이 정책: race(기본, K=2) | single | lazy
 ```
 
@@ -93,6 +94,7 @@ npm install
 cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-1
 # 프로파일: int4(p5) / int4-g6e(g6e, 저비용) / bf16(p5)
 # 옵션: -c azs=... -c minCapacity=0 -c idleMinutes=60 -c alertEmail=you@example.com
+#       -c allowedCidrs=203.0.113.0/24  (소스 IP 허용목록 — 그 외 전부 403)
 ```
 
 어느 리전·시간대에 스팟이 잘 잡히는지는 위의 **공개 대시보드**를 먼저 확인하면
@@ -150,8 +152,9 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 
 ## 스코프 (YAGNI)
 
-오토스케일링 없음(min1/max1), 웹 UI 없음. TLS는 v1 요건(R11)으로 확정되어 구현 예정
-— 현재는 HTTP + API 키이므로 민감 데이터에는 사용 금지.
+오토스케일링 없음(min1/max1), 웹 UI 없음. 엔드포인트는 CloudFront 경유 HTTPS가 기본이며
+(도메인 불요), ALB 직접 접근은 오리진 검증 헤더가 없어 403이다. 소스 IP 허용목록은
+`-c allowedCidrs=`로 켠다.
 
 ## 프로젝트 방향
 
