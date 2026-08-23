@@ -72,6 +72,14 @@ export class TokenForgeStack extends cdk.Stack {
       },
     });
 
+    // CloudFront만 ALB를 통과하도록 하는 오리진 검증 헤더 값 (설계 결정 1·2)
+    const originVerifySecret = new secretsmanager.Secret(this, 'OriginVerifySecret', {
+      description: 'token-forge CloudFront origin verification header value',
+      generateSecretString: { excludePunctuation: true, passwordLength: 32 },
+    });
+    // CFN 동적 참조 — 배포 시 해석되어 리스너 룰과 CloudFront 헤더 양쪽에 동일 값이 들어간다
+    const originVerifyValue = originVerifySecret.secretValue.unsafeUnwrap();
+
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
       managedPolicies: [
@@ -167,8 +175,8 @@ export class TokenForgeStack extends cdk.Stack {
       groupMetrics: [autoscaling.GroupMetrics.all()], // Task 8 알람에 필요
     });
 
-    const listener = alb.addListener('Http', { port: 80, open: true });
-    listener.addTargets('Vllm', {
+    const vllmTargets = new elbv2.ApplicationTargetGroup(this, 'VllmTg', {
+      vpc,
       port: 8000,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [asg],
@@ -179,6 +187,21 @@ export class TokenForgeStack extends cdk.Stack {
         unhealthyThresholdCount: 5,
       },
       deregistrationDelay: cdk.Duration.seconds(30),
+    });
+
+    // 기본 403: CloudFront가 부착하는 X-Origin-Verify 없이는 통과 불가 (우회 차단)
+    const listener = alb.addListener('Http', {
+      port: 80,
+      open: true,
+      defaultAction: elbv2.ListenerAction.fixedResponse(403, {
+        contentType: 'text/plain',
+        messageBody: 'Forbidden: use the HTTPS endpoint',
+      }),
+    });
+    listener.addAction('VerifiedForward', {
+      priority: 10,
+      conditions: [elbv2.ListenerCondition.httpHeader('X-Origin-Verify', [originVerifyValue])],
+      action: elbv2.ListenerAction.forward([vllmTargets]),
     });
 
     // --- 알림: 스팟 중단 경고 + 30분 무용량 알람 → SNS ---

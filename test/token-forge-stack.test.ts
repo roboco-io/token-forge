@@ -220,6 +220,34 @@ describe('outputs', () => {
   );
 });
 
+describe('R11: 오리진 검증 게이트', () => {
+  const template = makeTemplate();
+
+  test('리스너 기본 액션은 403 고정 응답', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
+      Port: 80,
+      DefaultActions: [{
+        Type: 'fixed-response',
+        FixedResponseConfig: { StatusCode: '403' },
+      }],
+    });
+  });
+
+  test('X-Origin-Verify 헤더 일치 시에만 vLLM으로 포워드', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Conditions: [{
+        Field: 'http-header',
+        HttpHeaderConfig: { HttpHeaderName: 'X-Origin-Verify' },
+      }],
+      Actions: [{ Type: 'forward' }],
+    });
+  });
+
+  test('오리진 검증 시크릿이 별도로 생성됨 (API 키와 분리)', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+  });
+});
+
 describe('az filter context', () => {
   test('-c azs= restricts ASG subnets to the given AZs', () => {
     // 유닛 테스트 합성 환경의 AZ는 dummy1a/dummy1b — 그중 1개만 선택
