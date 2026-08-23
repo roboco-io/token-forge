@@ -3,7 +3,7 @@ import { CloudFormationClient, DescribeStacksCommand, ListStackResourcesCommand 
 import { AutoScalingClient, SetDesiredCapacityCommand, UpdateAutoScalingGroupCommand, DescribeAutoScalingGroupsCommand } from '@aws-sdk/client-auto-scaling';
 import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { AwsApi } from '../cli/aws';
 
 const cfnMock = mockClient(CloudFormationClient);
@@ -103,4 +103,14 @@ test('emptyAndDeleteBucket — DeleteErrors 있으면 throw', async () => {
   });
   const api = new AwsApi('ap-northeast-2');
   await expect(api.emptyAndDeleteBucket('my-bucket')).rejects.toThrow(/버킷.*삭제 실패.*locked.*AccessDenied/);
+});
+
+test('headObject — 404는 false', async () => {
+  // aws-sdk-client-mock 4.x: .on()이 매번 새 matcher를 만들므로 우선순위는 등록 순서를
+  // 따른다 — 기본값(resolves)을 먼저 깔고 1회성 오버라이드(rejectsOnce)를 나중에 얹는다.
+  s3Mock.on(HeadObjectCommand).resolves({});
+  s3Mock.on(HeadObjectCommand).rejectsOnce(Object.assign(new Error('NotFound'), { name: 'NotFound' }));
+  const api = new AwsApi('ap-northeast-2');
+  expect(await api.headObject('b', 'k')).toBe(false);
+  expect(await api.headObject('b', 'k')).toBe(true);
 });

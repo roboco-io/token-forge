@@ -1,10 +1,12 @@
 import { Command } from 'commander';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import * as pkg from '../package.json';
-import { listModels } from './catalog';
+import { listModels, defaultProfile } from './catalog';
 import { AwsApi } from './aws';
-import { loadState } from './state';
+import { loadState, saveState } from './state';
 import { runStatus } from './commands/status';
+import { runUp } from './commands/up';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 
@@ -41,5 +43,32 @@ export function buildProgram(): Command {
     lines.forEach((l) => console.log(l));
   });
 
+  program.command('up <model>')
+    .description('스팟 LLM 기동 (스택·시딩 자동 준비)')
+    .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
+    .option('--region <r>', 'AWS 리전', 'ap-northeast-2')
+    .action(async (model: string, o: { profile?: string; region: string }) => {
+      const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
+      await runUp({ model, profile, region: o.region }, {
+        api: new AwsApi(o.region), exec: execInherit, probeAuth,
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+      });
+    });
+
   return program;
+}
+
+function execInherit(cmd: string, args: string[]): Promise<number> {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args, { stdio: 'inherit' });
+    p.on('close', (code) => resolve(code ?? 1));
+  });
+}
+
+async function probeAuth(url: string, key: string): Promise<number> {
+  try {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) });
+    return r.status;
+  } catch { return 0; }
 }

@@ -2,7 +2,7 @@ import { CloudFormationClient, DescribeStacksCommand, ListStackResourcesCommand 
 import { AutoScalingClient, SetDesiredCapacityCommand, UpdateAutoScalingGroupCommand, DescribeAutoScalingGroupsCommand } from '@aws-sdk/client-auto-scaling';
 import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export class AwsApi {
   private cfn: CloudFormationClient;
@@ -80,5 +80,10 @@ export class AwsApi {
       if (!list.IsTruncated) break;
     }
     await this.s3.send(new DeleteBucketCommand({ Bucket: bucket }));
+  }
+
+  async headObject(bucket: string, key: string): Promise<boolean> {
+    try { await this.s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key })); return true; }
+    catch (e) { if ((e as Error).name === 'NotFound' || (e as Error).name === '404') return false; throw e; }
   }
 }
