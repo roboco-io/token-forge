@@ -87,7 +87,7 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
 cdk 컨텍스트와 scripts/*.sh를 직접 다루는 대신 통합 CLI를 쓸 수 있다:
 
 ```bash
-npm install -g @serithemage/tkf   # tkf 명령 설치
+npm install -g @roboco/token-forge   # tkf 명령 설치
 # 또는 소스에서 설치:
 # npm install && npm run build && npm link
 tkf model list                              # 검증된 모델 카탈로그
