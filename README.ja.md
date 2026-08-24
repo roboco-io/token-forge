@@ -93,7 +93,7 @@ robocoが常時運用している**GPUスポット確保可能性(プレイス�
 cdkのコンテキストとscripts/*.shを直接扱う代わりに、統合CLIを使うことができる:
 
 ```bash
-npm install -g token-forge   # tkfコマンドをインストール
+npm install -g tkf   # tkfコマンドをインストール
 # もしくはソースからインストール:
 # npm install && npm run build && npm link
 tkf model list                              # 検証済みモデルカタログ

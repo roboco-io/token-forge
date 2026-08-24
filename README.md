@@ -103,7 +103,7 @@ Instead of working with cdk context flags and scripts/*.sh directly, you can use
 unified CLI:
 
 ```bash
-npm install -g token-forge   # install the tkf command
+npm install -g tkf   # install the tkf command
 # or, to install from source:
 # npm install && npm run build && npm link
 tkf model list                              # verified model catalog

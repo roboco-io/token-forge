@@ -1,5 +1,5 @@
 {
-  "name": "token-forge",
+  "name": "tkf",
   "version": "1.0.0",
   "description": "Private vibe-coding LLM in your own AWS account — open-weight models on 100% spot instances with placement-score intelligence",
   "keywords": [
