@@ -79,14 +79,17 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
 - 비용 참고 (스팟, 리전·시점 변동): g6e.12xlarge 약 **$2.6/hr**, g6e.48xlarge 약
   **$10-13/hr**, p5.48xlarge 약 **$30-50/hr**. 유휴 자동 정지가 기본이지만 장기
   미사용 시 `cdk destroy` 권장.
-- Node 20+, AWS CDK CLI (`npm i -g aws-cdk`), 부트스트랩된 계정(`cdk bootstrap`).
+- Node 20+, 부트스트랩된 계정(`cdk bootstrap`). AWS CDK CLI는 패키지 의존성에
+  포함되어 있어 별도 설치가 필요 없다 (소스로 설치할 때만 별도 설치 필요).
 
 ## tkf CLI (권장 인터페이스)
 
 cdk 컨텍스트와 scripts/*.sh를 직접 다루는 대신 통합 CLI를 쓸 수 있다:
 
 ```bash
-npm install && npm run build && npm link   # tkf 명령 설치
+npm install -g token-forge   # tkf 명령 설치
+# 또는 소스에서 설치:
+# npm install && npm run build && npm link
 tkf model list                              # 검증된 모델 카탈로그
 tkf placement qwen3-coder-30b               # 리전 추천 표 (배치점수 48h·RTT·가격·쿼터)
 tkf seed qwen3-coder-30b                    # 가중치 S3 선시딩만 (GPU 0대, 리전 선택 프롬프트)

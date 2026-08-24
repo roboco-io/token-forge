@@ -93,8 +93,9 @@ To run the same collector directly in your own account, use
   g6e.12xlarge, about **$10-13/hr** for g6e.48xlarge, and about **$30-50/hr** for
   p5.48xlarge. Idle auto-shutdown is on by default, but `cdk destroy` is recommended for
   extended periods of non-use.
-- Node 20+, the AWS CDK CLI (`npm i -g aws-cdk`), and a bootstrapped account
-  (`cdk bootstrap`).
+- Node 20+, and a bootstrapped account (`cdk bootstrap`). The AWS CDK CLI is bundled as a
+  package dependency, so you don't need to install it separately (only required as a
+  separate install if you're installing from source).
 
 ## tkf CLI (recommended interface)
 
@@ -102,7 +103,9 @@ Instead of working with cdk context flags and scripts/*.sh directly, you can use
 unified CLI:
 
 ```bash
-npm install && npm run build && npm link   # install the tkf command
+npm install -g token-forge   # install the tkf command
+# or, to install from source:
+# npm install && npm run build && npm link
 tkf model list                              # verified model catalog
 tkf placement qwen3-coder-30b               # region recommendation table (48h placement score, RTT, price, quota)
 tkf seed qwen3-coder-30b                    # pre-seed weights to S3 only (0 GPUs, prompts for a region)

@@ -84,15 +84,18 @@ robocoが常時運用している**GPUスポット確保可能性(プレイス�
 - コスト目安(スポット、リージョン・時期により変動): g6e.12xlargeが約**$2.6/hr**、
   g6e.48xlargeが約**$10-13/hr**、p5.48xlargeが約**$30-50/hr**。アイドル自動停止が
   デフォルトで有効だが、長期間使わない場合は`cdk destroy`を推奨。
-- Node 20以上、AWS CDK CLI(`npm i -g aws-cdk`)、ブートストラップ済みアカウント
-  (`cdk bootstrap`)。
+- Node 20以上、ブートストラップ済みアカウント(`cdk bootstrap`)。AWS CDK CLIは
+  パッケージの依存関係に含まれているため個別インストールは不要(ソースから
+  インストールする場合のみ別途必要)。
 
 ## tkf CLI(推奨インターフェース)
 
 cdkのコンテキストとscripts/*.shを直接扱う代わりに、統合CLIを使うことができる:
 
 ```bash
-npm install && npm run build && npm link   # tkfコマンドをインストール
+npm install -g token-forge   # tkfコマンドをインストール
+# もしくはソースからインストール:
+# npm install && npm run build && npm link
 tkf model list                              # 検証済みモデルカタログ
 tkf placement qwen3-coder-30b               # リージョン推奨テーブル(48hプレイスメントスコア・RTT・価格・クォータ)
 tkf seed qwen3-coder-30b                    # 重みのS3事前シーディングのみ(GPU 0台、リージョン選択プロンプト)
