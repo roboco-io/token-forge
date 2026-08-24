@@ -16,13 +16,32 @@
 
 > 제품 방향: [PR/FAQ](docs/prfaq.md) · 요건: [v1 요건 정의](docs/superpowers/specs/2026-08-22-token-forge-v1-requirements.md) · 초기 설계: [2026-07-23 설계 문서](docs/superpowers/specs/2026-07-23-token-forge-design.md)
 
+## 왜 token-forge인가
+
+세 가지 축이 핵심이고, 전부 실배포 실측으로 뒷받침된다 — 근거와 수치는
+**[비용·보안·편의 상세](docs/value-proposition.md)** 참고.
+
+- **비용 — 쓴 시간만큼만**: 100% 스팟(온디맨드의 약 3분의 1에서 4분의 1) + 유휴 30분
+  자동 정지 + 실패 경로마다 GPU를 0으로 되돌리는 비용 가드 + 가중치는 저가 CPU 스팟이
+  선시딩(실측 8분/$0.03). 30B급 기준 **월 $100-200**, 안 쓰는 달은 GPU 요금 0.
+- **보안 — 불반출이 아키텍처**: 추론·프롬프트·사용량 통계 모두 내 계정 안에서 완결,
+  텔레메트리 없음(외부 통신은 HF 다운로드·AWS API·피드 익명 GET 3종뿐 — 피드마저
+  자가 수집기로 대체 가능). 전송은 CloudFront TLS가 기본이고 ALB 우회 접근은 403,
+  소스 IP 허용목록(`-c allowedCidrs=`)과 `tkf rotate-key` 키 회전 제공. 전부 OSS라
+  직접 감사할 수 있다.
+- **편의 — 리전을 몰라도 된다**: `tkf up` + `tkf connect claude` 명령 2개. 배치점수
+  48h 추이·RTT·가격·쿼터로 리전을 자동 선정하고 후보들에 병렬로 확보를 시도해 먼저
+  잡힌 곳만 남긴다(First-Acquired-Wins). Anthropic `/v1/messages` 네이티브 + prefix
+  caching(TTFT 실측 0.82초 → 0.14초)으로 Claude Code가 그대로 붙는다.
+
 ## 아키텍처
 
 ```mermaid
 flowchart LR
-    U["개발자 / Claude Code"] -- "HTTP + API 키" --> ALB
+    U["개발자 / Claude Code"] -- "HTTPS + API 키" --> CF
     subgraph AWS["내 AWS 계정 (리전당 스택 1개)"]
-        ALB["ALB"] --> ASG["ASG min1/max1<br/>100% 스팟 · capacity-optimized<br/>멀티 AZ · 다중 타입 후보"]
+        CF["CloudFront (TLS 종단)"] --> ALB["ALB<br/>(오리진 헤더 검증, 그 외 403)"]
+        ALB --> ASG["ASG min1/max1<br/>100% 스팟 · capacity-optimized<br/>멀티 AZ · 다중 타입 후보"]
         ASG --> EC2["EC2 GPU<br/>DLAMI + Docker(vLLM)<br/>/v1/chat/completions + /v1/messages"]
         EC2 <-- "가중치 캐시 로드/시딩" --> S3[("S3 버킷<br/>(Retain)")]
         SM["Secrets Manager<br/>(API 키)"] -.-> EC2
