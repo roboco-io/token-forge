@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { spawn } from 'child_process';
 import * as pkg from '../package.json';
 import { listModels, defaultProfile } from './catalog';
@@ -12,6 +13,7 @@ import { runUp, runUpAuto, ensureStackReady, waitReady } from './commands/up';
 import { runSeed, mkSeedEnsure, SeedChoice } from './commands/seed';
 import { runDown } from './commands/down';
 import { renderClaudeEnv } from './commands/connect';
+import { runRotateKey } from './commands/rotate';
 import { loadModelProfile } from '../lib/model-profile';
 import { stackNameFor } from '../lib/naming';
 import { loadConfig, saveConfig } from './config';
@@ -219,6 +221,18 @@ export function buildProgram(): Command {
           thresholds: { score: cfg.scoreTieThreshold, rttMs: cfg.rttTieThresholdMs },
         });
       lines.forEach((l) => console.log(l));
+    });
+
+  program.command('rotate-key')
+    .description('API 키 회전 (Secrets Manager 갱신 — 가동 중이면 재기동 시 적용)')
+    .action(async () => {
+      const state = requireState();
+      await runRotateKey(state, {
+        api: new AwsApi(state.region),
+        // 헤더/셸 안전 문자만 (스택의 excludePunctuation 정책과 동일 취지)
+        genKey: () => crypto.randomBytes(24).toString('hex'),
+        log: (m) => console.log(m),
+      });
     });
 
   return program;

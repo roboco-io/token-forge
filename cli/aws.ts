@@ -1,7 +1,7 @@
 import { CloudFormationClient, DescribeStacksCommand, ListStackResourcesCommand } from '@aws-sdk/client-cloudformation';
 import { AutoScalingClient, SetDesiredCapacityCommand, UpdateAutoScalingGroupCommand, DescribeAutoScalingGroupsCommand } from '@aws-sdk/client-auto-scaling';
 import { EC2Client, DescribeInstancesCommand, DescribeInstanceTypesCommand, DescribeSpotPriceHistoryCommand, GetSpotPlacementScoresCommand } from '@aws-sdk/client-ec2';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { ServiceQuotasClient, GetServiceQuotaCommand } from '@aws-sdk/client-service-quotas';
 
@@ -73,6 +73,10 @@ export class AwsApi {
   async getSecret(arn: string): Promise<string> {
     const out = await this.sm.send(new GetSecretValueCommand({ SecretId: arn }));
     return out.SecretString!;
+  }
+
+  async putSecret(arn: string, value: string): Promise<void> {
+    await this.sm.send(new PutSecretValueCommand({ SecretId: arn, SecretString: value }));
   }
 
   async emptyAndDeleteBucket(bucket: string): Promise<void> {

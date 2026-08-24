@@ -220,6 +220,34 @@ describe('outputs', () => {
   );
 });
 
+describe('R11: 오리진 검증 게이트', () => {
+  const template = makeTemplate();
+
+  test('리스너 기본 액션은 403 고정 응답', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
+      Port: 80,
+      DefaultActions: [{
+        Type: 'fixed-response',
+        FixedResponseConfig: { StatusCode: '403' },
+      }],
+    });
+  });
+
+  test('X-Origin-Verify 헤더 일치 시에만 vLLM으로 포워드', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Conditions: [{
+        Field: 'http-header',
+        HttpHeaderConfig: { HttpHeaderName: 'X-Origin-Verify' },
+      }],
+      Actions: [{ Type: 'forward' }],
+    });
+  });
+
+  test('오리진 검증 시크릿이 별도로 생성됨 (API 키와 분리)', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+  });
+});
+
 describe('az filter context', () => {
   test('-c azs= restricts ASG subnets to the given AZs', () => {
     // 유닛 테스트 합성 환경의 AZ는 dummy1a/dummy1b — 그중 1개만 선택
@@ -288,5 +316,80 @@ describe('idle shutdown', () => {
     const template = Template.fromStack(stack);
     const alarms = template.findResources('AWS::CloudWatch::Alarm');
     expect(Object.keys(alarms)).toHaveLength(1); // NoCapacityAlarm만 남는다
+  });
+});
+
+function makeTemplateWithContext(app: cdk.App): Template {
+  const resolvedProfile = loadModelProfile(
+    path.join(__dirname, '..', 'models'), 'solar-open2-250b', 'int4',
+  );
+  const stack = new TokenForgeStack(app, 'TestWithContext', {
+    resolvedProfile,
+    env: { account: '111111111111', region: 'us-east-2' },
+  });
+  return Template.fromStack(stack);
+}
+
+describe('R11: CloudFront 프론트 도어', () => {
+  const template = makeTemplate();
+
+  test('Distribution이 캐시 비활성 + HTTPS 전용 뷰어 + HTTP 오리진으로 생성됨', () => {
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Enabled: true,
+        IPV6Enabled: false,
+        DefaultCacheBehavior: Match.objectLike({
+          ViewerProtocolPolicy: 'https-only',
+          CachePolicyId: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad',
+        }),
+        Origins: [Match.objectLike({
+          CustomOriginConfig: Match.objectLike({
+            OriginProtocolPolicy: 'http-only',
+            OriginReadTimeout: 60,
+          }),
+          OriginCustomHeaders: [Match.objectLike({ HeaderName: 'X-Origin-Verify' })],
+        })],
+      }),
+    });
+  });
+
+  test('EndpointUrl 출력이 https CloudFront 도메인', () => {
+    const out = template.findOutputs('EndpointUrl');
+    expect(JSON.stringify(out.EndpointUrl.Value)).toContain('https://');
+    expect(JSON.stringify(out.EndpointUrl.Value)).not.toContain('LoadBalancer');
+  });
+
+  test('allowedCidrs 미지정 시 CloudFront Function 없음', () => {
+    template.resourceCountIs('AWS::CloudFront::Function', 0);
+  });
+});
+
+describe('R11: allowedCidrs 소스 IP 허용목록', () => {
+  test('지정 시 viewer-request CloudFront Function이 CIDR 목록을 담아 생성됨', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '203.0.113.0/24,198.51.100.7/32' } });
+    const t = makeTemplateWithContext(app);
+    t.resourceCountIs('AWS::CloudFront::Function', 1);
+    const fns = t.findResources('AWS::CloudFront::Function');
+    const code = JSON.stringify(fns);
+    expect(code).toContain('203.0.113.0/24');
+    expect(code).toContain('198.51.100.7/32');
+  });
+
+  test('불량 CIDR(마스크 NaN)이면 synth 시 명확한 오류로 실패한다', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '203.0.113.0/abc' } });
+    expect(() => makeTemplateWithContext(app)).toThrow(/allowedCidrs.*잘못된 CIDR/);
+  });
+
+  test('옥텟·마스크 범위를 벗어나면 synth 시 오류로 실패한다', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '999.0.113.0/24' } });
+    expect(() => makeTemplateWithContext(app)).toThrow(/allowedCidrs/);
+  });
+
+  test('마스크 없는 단일 IPv4는 /32로 자동 보정되어 함수 코드에 들어간다', () => {
+    const app = new cdk.App({ context: { model: 'solar-open2-250b', profile: 'int4', allowedCidrs: '203.0.113.7' } });
+    const t = makeTemplateWithContext(app);
+    const fns = t.findResources('AWS::CloudFront::Function');
+    const code = JSON.stringify(fns);
+    expect(code).toContain('203.0.113.7/32');
   });
 });

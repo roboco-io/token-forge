@@ -21,7 +21,8 @@ flowchart TB
     end
 
     subgraph USER["사용자 AWS 계정  ← 추론·데이터는 전부 여기"]
-        ALB["ALB (HTTP + API 키)"]
+        CF["CloudFront (HTTPS)<br/>allowedCidrs 허용목록(옵션)"]
+        ALB["ALB (X-Origin-Verify 검증, 그 외 403)"]
         ASG["ASG min1/max1<br/>100% 스팟 · capacity-optimized<br/>멀티 AZ · 다중 인스턴스 타입"]
         EC2["EC2 GPU 인스턴스<br/>DLAMI + Docker(vLLM)"]
         S3[("S3 가중치 캐시<br/>(Retain)")]
@@ -37,7 +38,8 @@ flowchart TB
 
     HF["Hugging Face<br/>(가중치 다운로드)"]
 
-    CC -- "ANTHROPIC_BASE_URL<br/>= 스택 엔드포인트" --> ALB
+    CC -- "ANTHROPIC_BASE_URL<br/>= 스택 엔드포인트" --> CF
+    CF --> ALB
     TF -- "AWS API<br/>(CFN·ASG·EC2·S3·Secrets)" --> USER
     TF -. "익명 GET (선택)<br/>배치점수 추이" .-> CDN
     ALB --> ASG --> EC2
@@ -158,6 +160,7 @@ flowchart TB
   새 모델 온보딩 시 기본 점검 항목.
 - **ELB 헬스체크 유예 60분**: 대형 모델 콜드 부팅이 헬스체크에 죽지 않도록.
 - vLLM 로그는 CloudWatch Logs `/token-forge/vllm`에 보존된다(인스턴스 종료 후에도).
+- **전송 보안(R11)**: 사용자 구간은 CloudFront TLS, ALB는 오리진 헤더 게이트로 우회 차단, `tkf rotate-key`로 키 회전(재기동 시 적용).
 
 ## 7. 스팟 인텔리전스 — 수집기와 공개 피드
 

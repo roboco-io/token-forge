@@ -2,7 +2,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import { CloudFormationClient, DescribeStacksCommand, ListStackResourcesCommand } from '@aws-sdk/client-cloudformation';
 import { AutoScalingClient, SetDesiredCapacityCommand, UpdateAutoScalingGroupCommand, DescribeAutoScalingGroupsCommand } from '@aws-sdk/client-auto-scaling';
 import { EC2Client, DescribeInstancesCommand, DescribeInstanceTypesCommand, DescribeSpotPriceHistoryCommand, GetSpotPlacementScoresCommand } from '@aws-sdk/client-ec2';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { ServiceQuotasClient, GetServiceQuotaCommand } from '@aws-sdk/client-service-quotas';
 import { AwsApi } from '../cli/aws';
@@ -97,6 +97,14 @@ test('getSecret — Secrets Manager 시크릿 문자열 반환', async () => {
   });
   const api = new AwsApi('ap-northeast-2');
   expect(await api.getSecret('arn:aws:secretsmanager:...')).toBe('my-secret-value');
+});
+
+test('putSecret: 지정 ARN에 새 값 저장', async () => {
+  smMock.on(PutSecretValueCommand).resolves({});
+  await new AwsApi('ap-northeast-2').putSecret('arn:aws:secretsmanager:x:y:secret:z', 'newkey');
+  const calls = smMock.commandCalls(PutSecretValueCommand);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].args[0].input).toEqual({ SecretId: 'arn:aws:secretsmanager:x:y:secret:z', SecretString: 'newkey' });
 });
 
 test('emptyAndDeleteBucket — 2페이지 삭제 후 DeleteBucket 호출', async () => {

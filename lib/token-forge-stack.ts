@@ -14,11 +14,30 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Construct } from 'constructs';
 import { ResolvedProfile } from './model-profile';
 
 export interface TokenForgeStackProps extends cdk.StackProps {
   resolvedProfile: ResolvedProfile;
+}
+
+// allowedCidrs 항목 검증: 마스크 없는 단일 IPv4는 /32로 보정, 그 외 형식·범위 오류는 synth에서 즉시 실패
+// (오타 CIDR을 CloudFront Function에 그대로 심으면 전 트래픽이 조용히 403 처리되는 사고를 막는다).
+function normalizeCidr(raw: string): string {
+  const trimmed = raw.trim();
+  const candidate = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed) ? `${trimmed}/32` : trimmed;
+  const m = candidate.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (!m) {
+    throw new Error(`allowedCidrs: 잘못된 CIDR "${raw}" — IPv4 CIDR(예: 203.0.113.0/24) 또는 단일 IP(예: 203.0.113.7)만 허용합니다`);
+  }
+  const octets = [m[1], m[2], m[3], m[4]].map(Number);
+  const mask = Number(m[5]);
+  if (octets.some((o) => o < 0 || o > 255) || mask < 0 || mask > 32) {
+    throw new Error(`allowedCidrs: 잘못된 CIDR "${raw}" — 옥텟은 0-255, 마스크는 0-32 범위여야 합니다`);
+  }
+  return candidate;
 }
 
 export class TokenForgeStack extends cdk.Stack {
@@ -71,6 +90,14 @@ export class TokenForgeStack extends cdk.Stack {
         passwordLength: 48,
       },
     });
+
+    // CloudFront만 ALB를 통과하도록 하는 오리진 검증 헤더 값 (설계 결정 1·2)
+    const originVerifySecret = new secretsmanager.Secret(this, 'OriginVerifySecret', {
+      description: 'token-forge CloudFront origin verification header value',
+      generateSecretString: { excludePunctuation: true, passwordLength: 32 },
+    });
+    // CFN 동적 참조 — 배포 시 해석되어 리스너 룰과 CloudFront 헤더 양쪽에 동일 값이 들어간다
+    const originVerifyValue = originVerifySecret.secretValue.unsafeUnwrap();
 
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -167,8 +194,8 @@ export class TokenForgeStack extends cdk.Stack {
       groupMetrics: [autoscaling.GroupMetrics.all()], // Task 8 알람에 필요
     });
 
-    const listener = alb.addListener('Http', { port: 80, open: true });
-    listener.addTargets('Vllm', {
+    const vllmTargets = new elbv2.ApplicationTargetGroup(this, 'VllmTg', {
+      vpc,
       port: 8000,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [asg],
@@ -179,6 +206,67 @@ export class TokenForgeStack extends cdk.Stack {
         unhealthyThresholdCount: 5,
       },
       deregistrationDelay: cdk.Duration.seconds(30),
+    });
+
+    // 기본 403: CloudFront가 부착하는 X-Origin-Verify 없이는 통과 불가 (우회 차단)
+    const listener = alb.addListener('Http', {
+      port: 80,
+      open: true,
+      defaultAction: elbv2.ListenerAction.fixedResponse(403, {
+        contentType: 'text/plain',
+        messageBody: 'Forbidden: use the HTTPS endpoint',
+      }),
+    });
+    listener.addAction('VerifiedForward', {
+      priority: 10,
+      conditions: [elbv2.ListenerCondition.httpHeader('X-Origin-Verify', [originVerifyValue])],
+      action: elbv2.ListenerAction.forward([vllmTargets]),
+    });
+
+    // --- R11 TLS: CloudFront 프론트 도어 (도메인 불요 HTTPS, 설계 결정 1·3·4) ---
+    const allowedCidrs = this.node.tryGetContext('allowedCidrs');
+    let ipAllowFn: cloudfront.Function | undefined;
+    if (allowedCidrs) {
+      const cidrs = String(allowedCidrs).split(',').map((c) => normalizeCidr(c));
+      // CloudFront Functions(cloudfront-js-2.0)에서 도는 IPv4 CIDR 매칭 — 허용목록 외 403
+      const fnCode = [
+        `var CIDRS = ${JSON.stringify(cidrs)};`,
+        'function ipToInt(ip) { var p = ip.split(\'.\'); return ((+p[0]) * 16777216) + ((+p[1]) * 65536) + ((+p[2]) * 256) + (+p[3]); }',
+        'function inCidr(ip, cidr) { var s = cidr.split(\'/\'); var bits = +s[1]; var div = Math.pow(2, 32 - bits); return Math.floor(ipToInt(ip) / div) === Math.floor(ipToInt(s[0]) / div); }',
+        'function handler(event) {',
+        '  var ip = event.viewer.ip;',
+        '  if (ip.indexOf(\':\') !== -1) { return { statusCode: 403, statusDescription: \'Forbidden\' }; }',
+        '  for (var i = 0; i < CIDRS.length; i++) { if (inCidr(ip, CIDRS[i])) { return event.request; } }',
+        '  return { statusCode: 403, statusDescription: \'Forbidden\' };',
+        '}',
+      ].join('\n');
+      ipAllowFn = new cloudfront.Function(this, 'IpAllowFn', {
+        code: cloudfront.FunctionCode.fromInline(fnCode),
+        runtime: cloudfront.FunctionRuntime.JS_2_0,
+        comment: 'token-forge source IP allowlist',
+      });
+    }
+
+    const cdn = new cloudfront.Distribution(this, 'Cdn', {
+      comment: 'token-forge HTTPS front door',
+      enableIpv6: false,
+      defaultBehavior: {
+        origin: new origins.LoadBalancerV2Origin(alb, {
+          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+          customHeaders: { 'X-Origin-Verify': originVerifyValue },
+          readTimeout: cdk.Duration.seconds(60),
+        }),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+        ...(ipAllowFn ? {
+          functionAssociations: [{
+            function: ipAllowFn,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          }],
+        } : {}),
+      },
     });
 
     // --- 알림: 스팟 중단 경고 + 30분 무용량 알람 → SNS ---
@@ -271,8 +359,8 @@ exports.handler = async () => {
 
     // --- 출력 ---
     new cdk.CfnOutput(this, 'EndpointUrl', {
-      value: `http://${alb.loadBalancerDnsName}`,
-      description: 'OpenAI-compatible endpoint base URL',
+      value: `https://${cdn.distributionDomainName}`,
+      description: 'HTTPS endpoint base URL (OpenAI + Anthropic compatible)',
     });
     new cdk.CfnOutput(this, 'ApiKeySecretArn', {
       value: apiKeySecret.secretArn,
