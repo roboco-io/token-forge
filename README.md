@@ -43,6 +43,38 @@ evidence and numbers.
   Anthropic `/v1/messages` support plus prefix caching (measured TTFT dropping from 0.82s to
   0.14s) means Claude Code connects without any adjustment.
 
+## Who is this for
+
+In one sentence: developers who **cannot send code outside, consume very large token
+volumes, or run GPU workloads in concentrated bursts**.
+
+**A good fit if you are:**
+
+1. **A developer under privacy constraints** — company policy or regulation forbids
+   sending code to external LLM APIs. Inference, prompts, and even usage statistics stay
+   inside your own AWS account, and the whole stack is open source and auditable. For
+   this group the alternative is not a commercial API but "nothing at all".
+2. **A heavy power user hitting subscription limits** — agent fan-out burning 100M+
+   tokens a day. Flat GPU-hours (about $100-200/month) mean unlimited tokens: from this
+   volume on, self-hosting matches same-model API pricing and beats first-party commercial
+   APIs by multiples. Flat-rate 128K context also avoids context-tiered API billing.
+3. **A batch workload operator** — nightly bulk code analysis or generation that fills
+   the GPU. Higher utilization improves token unit cost by 3-5x, the sweet spot for spot.
+4. **An organization with AWS credits or committed spend (EDP)** — API bills are separate
+   spend, but GPU spot burns down your existing AWS commitment.
+
+**Not a good fit if you:**
+
+- **Use it lightly** — below tens of millions of tokens a month, third-party APIs serving
+  the same open-weight models are far cheaper. In that range the only reason to choose
+  token-forge is privacy.
+- **Need uninterrupted service** — the design accepts a few minutes of re-acquisition gap
+  on spot reclaim (R3); it is not for SLA-bound production serving.
+- **Require frontier-model quality** — if open-weight 30B-355B models are not enough,
+  this is not the tool.
+- Find AWS account and quota management itself a burden — the first run requires a spot
+  quota increase request.
+
 ## Architecture
 
 ```mermaid
