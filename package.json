@@ -1,6 +1,6 @@
 {
   "name": "@roboco/token-forge",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Private vibe-coding LLM in your own AWS account — open-weight models on 100% spot instances with placement-score intelligence",
   "keywords": [
     "llm",
