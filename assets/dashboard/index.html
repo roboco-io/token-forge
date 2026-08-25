@@ -85,6 +85,13 @@
   .tblwrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; }
   .ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
   .ranks .cap { font-size: 0.85rem; font-weight: 650; padding: 9px 14px 0; }
+  .ranks table { table-layout: fixed; }
+  .ranks th, .ranks td { padding: 7px 6px; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
+  .ranks th:first-child, .ranks td:first-child { padding-left: 12px; }
+  .ranks th:last-child, .ranks td:last-child { padding-right: 12px; }
+  .ranks td .sw { margin-right: 5px; }
+  .ranks col.c-idx { width: 8%; } .ranks col.c-region { width: 32%; }
+  .ranks col.c-avg { width: 20%; } .ranks col.c-score { width: 18%; } .ranks col.c-price { width: 22%; }
   table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
   th, td { text-align: left; padding: 7px 14px; white-space: nowrap; }
   thead th { color: var(--muted); font-weight: 600; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase;
@@ -168,7 +175,7 @@ const I18N = {
     },
     topHeading: 'Regional acquisition stability',
     topHeadingSpan: '— based on 48h average placement score · P and G types compared separately (different use cases) · price is for reference only',
-    rankHeaders: ['#', 'Region', '48h avg', 'Current score', 'Current lowest price'],
+    rankHeaders: ['#', 'Region', '48h', 'Score', 'Price'],
     noData: 'No data',
     mostStable: type => `${type} most stable`,
     avg48Line: (region, avg) => `${region} · 48h avg ${avg}`,
@@ -222,7 +229,7 @@ const I18N = {
     },
     topHeading: '리전별 확보 안정성',
     topHeadingSpan: '— 48시간 평균 배치점수 기준 · P/G는 용도가 달라 타입별 분리 비교 · 가격은 참고',
-    rankHeaders: ['#', '리전', '48h 평균', '현재 점수', '현재 최저가'],
+    rankHeaders: ['#', '리전', '48h', '점수', '최저가'],
     noData: '데이터 없음',
     mostStable: type => `${type} 최안정`,
     avg48Line: (region, avg) => `${region} · 48h 평균 ${avg}`,
@@ -265,7 +272,7 @@ const I18N = {
     regions: {
       'ap-northeast-1': { full: '東京', short: '東京' },
       'ap-northeast-2': { full: 'ソウル', short: 'ソウル' },
-      'us-east-1':      { full: 'バージニア北部 us-east-1', short: 'バージニア北部' },
+      'us-east-1':      { full: 'バージニア北部 us-east-1', short: 'バージニア' },
       'us-east-2':      { full: 'オハイオ us-east-2', short: 'オハイオ' },
       'us-west-2':      { full: 'オレゴン us-west-2', short: 'オレゴン' },
     },
@@ -276,7 +283,7 @@ const I18N = {
     },
     topHeading: 'リージョン別 確保安定性',
     topHeadingSpan: '— 48時間平均配置スコア基準 · P/Gは用途が異なるためタイプ別に比較 · 価格は参考値',
-    rankHeaders: ['#', 'リージョン', '48h平均', '現在スコア', '現在最安値'],
+    rankHeaders: ['#', 'リージョン', '48h', 'スコア', '価格'],
     noData: 'データなし',
     mostStable: type => `${type} 最安定`,
     avg48Line: (region, avg) => `${region} · 48h平均 ${avg}`,
@@ -421,7 +428,8 @@ function renderSummary() {
   const RANKS = Object.fromEntries(DATA.types.map(type => [type, rankingRows(type)]));
   document.getElementById('ranking').innerHTML = DATA.types.map(type =>
     `<div class="tblwrap"><div class="cap">${type}</div>
-     <table><thead><tr>${t().rankHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
+     <table><colgroup><col class="c-idx"><col class="c-region"><col class="c-avg"><col class="c-score"><col class="c-price"></colgroup>
+     <thead><tr>${t().rankHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       RANKS[type].map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td>
         <td><span class="sw" style="background:${COLORS[x.region]}"></span>${shortName(x.region)}</td>
         <td><b>${x.avg48 ?? '—'}</b></td><td>${x.score}</td>
