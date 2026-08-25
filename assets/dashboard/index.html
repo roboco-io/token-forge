@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>스팟 배치점수 × 가격 대시보드</title>
+<title>Spot Placement Score × Price Dashboard</title>
 <style>
   :root {
     color-scheme: light;
@@ -47,15 +47,16 @@
     font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
     margin: 0; padding: 28px 20px 60px; }
   .wrap { max-width: 1080px; margin: 0 auto; }
+  header .headrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
   header h1 { font-size: 1.45rem; margin: 0 0 4px; text-wrap: balance; }
   header .sub { color: var(--ink-2); font-size: 0.9rem; margin: 0; }
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 16px 0 6px; }
-  .ranges, .chips { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px; overflow: hidden; }
-  .ranges button, .chips button { font: 600 0.8rem/1 system-ui, sans-serif; padding: 7px 12px; border: none; cursor: pointer;
+  .ranges, .chips, .langsw { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px; overflow: hidden; flex: none; }
+  .ranges button, .chips button, .langsw button { font: 600 0.8rem/1 system-ui, sans-serif; padding: 7px 12px; border: none; cursor: pointer;
     background: var(--surface); color: var(--ink-2); }
-  .ranges button + button, .chips button + button { border-left: 1px solid var(--ring); }
-  .ranges button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--btn-on); color: var(--btn-on-ink); }
-  .ranges button:focus-visible, .chips button:focus-visible { outline: 2px solid var(--s-apne1); outline-offset: -2px; }
+  .ranges button + button, .chips button + button, .langsw button + button { border-left: 1px solid var(--ring); }
+  .ranges button[aria-pressed="true"], .chips button[aria-pressed="true"], .langsw button[aria-pressed="true"] { background: var(--btn-on); color: var(--btn-on-ink); }
+  .ranges button:focus-visible, .chips button:focus-visible, .langsw button:focus-visible { outline: 2px solid var(--s-apne1); outline-offset: -2px; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; }
   .legend .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 0.85rem; color: var(--ink-2); }
   .legend .sw { width: 12px; height: 12px; border-radius: 3px; }
@@ -120,77 +121,286 @@
 
 <div class="wrap">
   <header>
-    <h1>스팟 배치점수 × 가격 대시보드</h1>
-    <p class="sub" id="sub"></p>
+    <div class="headrow">
+      <div>
+        <h1 id="h1"></h1>
+        <p class="sub" id="sub"></p>
+      </div>
+      <div class="langsw" id="langsw"></div>
+    </div>
     <div class="toolbar">
-      <div class="ranges" id="ranges" role="group" aria-label="기간 선택"></div>
+      <div class="ranges" id="ranges" role="group"></div>
       <div class="legend" id="legend"></div>
     </div>
   </header>
   <div class="tiles" id="tiles"></div>
-  <h2 class="top">리전별 확보 안정성 <span class="span" style="font-weight:400;font-size:0.82rem;color:var(--muted)">— 48시간 평균 배치점수 기준 · P/G는 용도가 달라 타입별 분리 비교 · 가격은 참고</span></h2>
+  <h2 class="top" id="topHeading"></h2>
   <div class="ranks" id="ranking"></div>
-  <div class="explain">
-    <div class="card">
-      <h3>스팟 인스턴스란?</h3>
-      <p>AWS의 <b>유휴 EC2 용량을 온디맨드 대비 최대 90% 할인</b>된 시세로 빌리는 구매 방식입니다.
-      대신 AWS가 용량을 회수해야 하면 <b>2분 전 통지 후 인스턴스가 중단</b>될 수 있고,
-      수요가 몰리면 애초에 확보 자체가 안 되기도 합니다.</p>
-      <ul>
-        <li>스팟 시세는 AZ 단위 수급에 따라 수시로 변동 — 같은 리전이라도 AZ별 가격이 다릅니다.</li>
-        <li>GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다.</li>
-        <li>token-forge는 100% 스팟 + capacity-optimized 배분 + 중단 시 자동 재확보(ASG)로 운영합니다.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <h3>배치점수(Spot Placement Score)란?</h3>
-      <p>AWS가 <b>"이 스팟 요청이 향후 몇 시간 내 성공할 가능성"</b>을 1~10으로 알려주는 공식 선행 지표입니다
-      (<code>GetSpotPlacementScores</code> API). 리전 단위와 AZ 단위로 각각 조회할 수 있고,
-      이 대시보드는 수집기가 <b>1시간마다 기록한 값</b>입니다.</p>
-      <ul>
-        <li><b>9~10</b> 매우 높음 · <b>4~8</b> 시도할 만함 · <b>1~3</b> 확보 난항 예상.</li>
-        <li>보장이 아닌 확률 신호 — 점수 9여도 실패할 수 있고, 반대도 가능합니다.</li>
-        <li>단일 인스턴스 타입으로 조회하면 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다.</li>
-        <li>활용법: 점수가 높은 리전·AZ·시간대를 골라 기동(<code>-c azs=</code>)하면 확보 확률이 올라갑니다.</li>
-      </ul>
-    </div>
-  </div>
+  <div class="explain" id="explain"></div>
   <div id="sections"></div>
-  <p class="fine">배치점수는 1~10 (높을수록 확보 가능성↑). 점수 수집은 2026-08-06 시작. 14일 이전 데이터는 6시간 버킷(점수=최대, 가격=최소)으로 요약 저장.
-  점수 차트의 겹치는 선은 판별용 ±2px 미세 오프셋 적용. 히트맵은 전체 수집 기간의 KST 요일×시간대 평균 점수.</p>
+  <p class="fine" id="fine"></p>
 </div>
 
 <script>
 (async () => {
+// i18n dictionary + language detection are declared outside the try block so the
+// catch handler below can still localize its error message if anything else throws.
+// ---- i18n dictionary ----
+const I18N = {
+  en: {
+    title: 'Spot Placement Score × Price Dashboard',
+    h1: 'Spot Placement Score × Price Dashboard',
+    periodGroupLabel: 'Select period',
+    langGroupLabel: 'Language',
+    ranges: { 1: '24h', 7: '7d', 30: '30d', 90: '90d' },
+    sub: generated => `token-forge collector · generated ${generated} · times shown in KST · price is the lowest spot AZ price in the region ($/h)`,
+    regions: {
+      'ap-northeast-1': { full: 'Tokyo', short: 'Tokyo' },
+      'ap-northeast-2': { full: 'Seoul', short: 'Seoul' },
+      'us-east-1':      { full: 'N. Virginia (us-east-1)', short: 'N. Virginia' },
+      'us-east-2':      { full: 'Ohio (us-east-2)', short: 'Ohio' },
+      'us-west-2':      { full: 'Oregon (us-west-2)', short: 'Oregon' },
+    },
+    typeNotes: {
+      'p5.48xlarge':  '8×H100 · int4/bf16 profile',
+      'g6e.48xlarge': '8×L40S · int4-g6e profile',
+      'g6e.24xlarge': '4×L40S · GlobalPruned INT4 candidate · collected since 8/7',
+    },
+    topHeading: 'Regional acquisition stability',
+    topHeadingSpan: '— based on 48h average placement score · P and G types compared separately (different use cases) · price is for reference only',
+    rankHeaders: ['#', 'Region', '48h avg', 'Current score', 'Current lowest price'],
+    noData: 'No data',
+    mostStable: type => `${type} most stable`,
+    avg48Line: (region, avg) => `${region} · 48h avg ${avg}`,
+    currentScoreLine: (score, price) => `Current score ${score} · $${price}/h`,
+    explain1Title: 'What is a Spot Instance?',
+    explain1P: 'A purchase option that rents AWS’s <b>idle EC2 capacity at up to 90% off</b> the on-demand price. In exchange, AWS may reclaim that capacity, which can <b>terminate the instance after a 2-minute warning</b>, and under heavy demand the capacity may not be available to begin with.',
+    explain1Li: [
+      'Spot prices fluctuate constantly based on per-AZ supply and demand — even within the same region, prices differ by AZ.',
+      'Large GPU instances (p5/g6e 48xlarge) have limited supply, so <b>simply acquiring capacity is often difficult</b>.',
+      'token-forge runs on 100% spot + capacity-optimized allocation + automatic re-acquisition on interruption (ASG).',
+    ],
+    explain2Title: 'What is a Spot Placement Score?',
+    explain2P: 'An official AWS leading indicator (the <code>GetSpotPlacementScores</code> API) that estimates <b>"how likely this spot request is to succeed within the next few hours"</b> on a scale of 1-10. It can be queried at the region or AZ level, and this dashboard shows values <b>recorded hourly by the collector</b>.',
+    explain2Li: [
+      '<b>9-10</b> very high · <b>4-8</b> worth trying · <b>1-3</b> likely difficult to acquire.',
+      'A probability signal, not a guarantee — a score of 9 can still fail, and a low score can still succeed.',
+      'Querying a single instance type tends to score lower → read it as a <b>trend and cross-region comparison rather than an absolute value</b>.',
+      'How to use it: launching (<code>-c azs=</code>) in the regions/AZs/hours with higher scores improves your odds of acquiring capacity.',
+    ],
+    footnote: 'Placement score ranges 1-10 (higher = better chance of acquisition). Score collection began 2026-08-06. Data older than 14 days is summarized in 6-hour buckets (score = max, price = min). Overlapping lines in the score chart use a small ±2px offset for readability. The heatmap shows the KST day-of-week × hour average score across the full collection period.',
+    chartScoreTitle: 'Placement score (1-10)',
+    chartPriceTitle: 'Spot lowest price ($/h, lowest AZ in region)',
+    azChartTitleFor: region => `Placement score by AZ — ${region} <span class="span">period filter applied</span>`,
+    hmChartTitleFor: region => `Day × hour heatmap (KST) — ${region} <span class="span">full-period average score</span>`,
+    chartEmpty: 'No data for the selected period',
+    noPoolSuffix: names => ` · <b>No spot pool: ${names}</b> — not missing data; this instance type simply has no spot market in that region (zero price records over 90 days, excluded from the placement score API response)`,
+    azTableHeaders: ['AZ ID', 'Region', 'AZ name', 'Recent score', 'Period avg', 'Period max', 'Current spot price'],
+    heatmapNoData: 'No data for this region',
+    heatmapCellTitle: (dow, hour, avg, n) => `${dow} ${hour}:00 avg ${avg} (n=${n})`,
+    dows: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    loadError: e => `Failed to load data.json: ${e} — either not yet published or a network issue.`,
+  },
+  ko: {
+    title: '스팟 배치점수 × 가격 대시보드',
+    h1: '스팟 배치점수 × 가격 대시보드',
+    periodGroupLabel: '기간 선택',
+    langGroupLabel: '언어',
+    ranges: { 1: '24시간', 7: '7일', 30: '30일', 90: '90일' },
+    sub: generated => `token-forge 수집기 · 생성 ${generated} · KST 표기 · 가격은 리전 내 최저 AZ 스팟가($/h)`,
+    regions: {
+      'ap-northeast-1': { full: '도쿄', short: '도쿄' },
+      'ap-northeast-2': { full: '서울', short: '서울' },
+      'us-east-1':      { full: '버지니아 us-east-1', short: '버지니아' },
+      'us-east-2':      { full: '오하이오 us-east-2', short: '오하이오' },
+      'us-west-2':      { full: '오레곤 us-west-2', short: '오레곤' },
+    },
+    typeNotes: {
+      'p5.48xlarge':  '8×H100 · int4/bf16 프로파일',
+      'g6e.48xlarge': '8×L40S · int4-g6e 프로파일',
+      'g6e.24xlarge': '4×L40S · GlobalPruned INT4 후보 · 8/7부터 수집',
+    },
+    topHeading: '리전별 확보 안정성',
+    topHeadingSpan: '— 48시간 평균 배치점수 기준 · P/G는 용도가 달라 타입별 분리 비교 · 가격은 참고',
+    rankHeaders: ['#', '리전', '48h 평균', '현재 점수', '현재 최저가'],
+    noData: '데이터 없음',
+    mostStable: type => `${type} 최안정`,
+    avg48Line: (region, avg) => `${region} · 48h 평균 ${avg}`,
+    currentScoreLine: (score, price) => `현재 점수 ${score} · $${price}/h`,
+    explain1Title: '스팟 인스턴스란?',
+    explain1P: 'AWS의 <b>유휴 EC2 용량을 온디맨드 대비 최대 90% 할인</b>된 시세로 빌리는 구매 방식입니다. 대신 AWS가 용량을 회수해야 하면 <b>2분 전 통지 후 인스턴스가 중단</b>될 수 있고, 수요가 몰리면 애초에 확보 자체가 안 되기도 합니다.',
+    explain1Li: [
+      '스팟 시세는 AZ 단위 수급에 따라 수시로 변동 — 같은 리전이라도 AZ별 가격이 다릅니다.',
+      'GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다.',
+      'token-forge는 100% 스팟 + capacity-optimized 배분 + 중단 시 자동 재확보(ASG)로 운영합니다.',
+    ],
+    explain2Title: '배치점수(Spot Placement Score)란?',
+    explain2P: 'AWS가 <b>"이 스팟 요청이 향후 몇 시간 내 성공할 가능성"</b>을 1~10으로 알려주는 공식 선행 지표입니다 (<code>GetSpotPlacementScores</code> API). 리전 단위와 AZ 단위로 각각 조회할 수 있고, 이 대시보드는 수집기가 <b>1시간마다 기록한 값</b>입니다.',
+    explain2Li: [
+      '<b>9~10</b> 매우 높음 · <b>4~8</b> 시도할 만함 · <b>1~3</b> 확보 난항 예상.',
+      '보장이 아닌 확률 신호 — 점수 9여도 실패할 수 있고, 반대도 가능합니다.',
+      '단일 인스턴스 타입으로 조회하면 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다.',
+      '활용법: 점수가 높은 리전·AZ·시간대를 골라 기동(<code>-c azs=</code>)하면 확보 확률이 올라갑니다.',
+    ],
+    footnote: '배치점수는 1~10 (높을수록 확보 가능성↑). 점수 수집은 2026-08-06 시작. 14일 이전 데이터는 6시간 버킷(점수=최대, 가격=최소)으로 요약 저장. 점수 차트의 겹치는 선은 판별용 ±2px 미세 오프셋 적용. 히트맵은 전체 수집 기간의 KST 요일×시간대 평균 점수.',
+    chartScoreTitle: '배치점수 (1~10)',
+    chartPriceTitle: '스팟 최저가 ($/h, 리전 내 최저 AZ)',
+    azChartTitleFor: region => `AZ별 배치점수 — ${region} <span class="span">기간 필터 적용</span>`,
+    hmChartTitleFor: region => `요일×시간 히트맵 (KST) — ${region} <span class="span">전체 기간 평균 점수</span>`,
+    chartEmpty: '선택한 기간에 데이터가 없습니다',
+    noPoolSuffix: names => ` · <b>스팟 풀 미개설: ${names}</b> — 데이터 누락이 아니라 해당 리전에 이 타입의 스팟 시장 자체가 없음(가격 기록 90일 0건, 배치점수 API 응답 제외)`,
+    azTableHeaders: ['AZ ID', '리전', 'AZ 이름', '최근 점수', '기간 평균', '기간 최대', '현재 스팟가'],
+    heatmapNoData: '이 리전은 데이터가 없습니다',
+    heatmapCellTitle: (dow, hour, avg, n) => `${dow} ${hour}시 평균 ${avg} (표본 ${n})`,
+    dows: ['일', '월', '화', '수', '목', '금', '토'],
+    loadError: e => `data.json 로드 실패: ${e} — 첫 게시 전이거나 네트워크 문제입니다.`,
+  },
+  ja: {
+    title: 'スポット配置スコア × 価格ダッシュボード',
+    h1: 'スポット配置スコア × 価格ダッシュボード',
+    periodGroupLabel: '期間選択',
+    langGroupLabel: '言語',
+    ranges: { 1: '24時間', 7: '7日', 30: '30日', 90: '90日' },
+    sub: generated => `token-forge収集機 · 生成 ${generated} · 時刻はKST表記 · 価格はリージョン内最安AZのスポット価格($/h)`,
+    regions: {
+      'ap-northeast-1': { full: '東京', short: '東京' },
+      'ap-northeast-2': { full: 'ソウル', short: 'ソウル' },
+      'us-east-1':      { full: 'バージニア北部 us-east-1', short: 'バージニア北部' },
+      'us-east-2':      { full: 'オハイオ us-east-2', short: 'オハイオ' },
+      'us-west-2':      { full: 'オレゴン us-west-2', short: 'オレゴン' },
+    },
+    typeNotes: {
+      'p5.48xlarge':  '8×H100 · int4/bf16プロファイル',
+      'g6e.48xlarge': '8×L40S · int4-g6eプロファイル',
+      'g6e.24xlarge': '4×L40S · GlobalPruned INT4候補 · 8/7から収集',
+    },
+    topHeading: 'リージョン別 確保安定性',
+    topHeadingSpan: '— 48時間平均配置スコア基準 · P/Gは用途が異なるためタイプ別に比較 · 価格は参考値',
+    rankHeaders: ['#', 'リージョン', '48h平均', '現在スコア', '現在最安値'],
+    noData: 'データなし',
+    mostStable: type => `${type} 最安定`,
+    avg48Line: (region, avg) => `${region} · 48h平均 ${avg}`,
+    currentScoreLine: (score, price) => `現在スコア ${score} · $${price}/h`,
+    explain1Title: 'スポットインスタンスとは？',
+    explain1P: 'AWSの<b>余剰EC2キャパシティをオンデマンド比最大90%割引</b>で借りる購入方式です。その代わり、AWSがキャパシティを回収する必要が生じると<b>2分前通知の後にインスタンスが中断</b>されることがあり、需要が集中すると確保自体ができない場合もあります。',
+    explain1Li: [
+      'スポット価格はAZ単位の需給に応じて随時変動します — 同一リージョンでもAZごとに価格が異なります。',
+      '大型GPUインスタンス(p5・g6e 48xlarge)は供給が少なく、<b>確保自体が難しい</b>状況が頻繁に発生します。',
+      'token-forgeは100%スポット + capacity-optimized配分 + 中断時の自動再確保(ASG)で運用します。',
+    ],
+    explain2Title: '配置スコア(Spot Placement Score)とは？',
+    explain2P: 'AWSが<b>「このスポットリクエストが今後数時間以内に成功する可能性」</b>を1〜10で示す公式の先行指標です(<code>GetSpotPlacementScores</code> API)。リージョン単位・AZ単位で取得でき、このダッシュボードは収集機が<b>1時間ごとに記録した値</b>です。',
+    explain2Li: [
+      '<b>9〜10</b> 非常に高い · <b>4〜8</b> 試す価値あり · <b>1〜3</b> 確保が難しい見込み。',
+      '保証ではなく確率的な指標です — スコア9でも失敗することがあり、逆もあり得ます。',
+      '単一インスタンスタイプで照会すると低く出る傾向があるため、<b>絶対値よりトレンド・リージョン間比較</b>で読むべきです。',
+      '活用法: スコアが高いリージョン・AZ・時間帯を選んで起動(<code>-c azs=</code>)すると確保確率が上がります。',
+    ],
+    footnote: '配置スコアは1〜10(高いほど確保可能性が高い)。スコア収集は2026-08-06開始。14日より前のデータは6時間バケット(スコア=最大、価格=最小)で要約保存。スコアチャートの重なる線は判別用に±2pxの微調整オフセットを適用。ヒートマップは収集期間全体のKST曜日×時間帯平均スコア。',
+    chartScoreTitle: '配置スコア (1〜10)',
+    chartPriceTitle: 'スポット最安値 ($/h、リージョン内最安AZ)',
+    azChartTitleFor: region => `AZ別配置スコア — ${region} <span class="span">期間フィルタ適用</span>`,
+    hmChartTitleFor: region => `曜日×時間帯ヒートマップ (KST) — ${region} <span class="span">収集期間全体の平均スコア</span>`,
+    chartEmpty: '選択した期間のデータがありません',
+    noPoolSuffix: names => ` · <b>スポットプール未開設: ${names}</b> — データ欠落ではなく、そのリージョンにこのタイプのスポット市場自体が存在しません(90日間価格記録0件、配置スコアAPIの応答からも除外)`,
+    azTableHeaders: ['AZ ID', 'リージョン', 'AZ名', '直近スコア', '期間平均', '期間最大', '現在のスポット価格'],
+    heatmapNoData: 'このリージョンはデータがありません',
+    heatmapCellTitle: (dow, hour, avg, n) => `${dow} ${hour}時 平均${avg} (n=${n})`,
+    dows: ['日', '月', '火', '水', '木', '金', '土'],
+    loadError: e => `data.jsonの読み込みに失敗しました: ${e} — 初回公開前か、ネットワークの問題です。`,
+  },
+};
+const LOCALE_MAP = { en: 'en-US', ko: 'ko-KR', ja: 'ja-JP' };
+function detectLang() {
+  try {
+    const saved = localStorage.getItem('tf-lang');
+    if (saved && I18N[saved]) return saved;
+  } catch (e) { /* localStorage unavailable — fall through */ }
+  const nav = (navigator.language || '').toLowerCase();
+  if (nav.startsWith('ko')) return 'ko';
+  if (nav.startsWith('ja')) return 'ja';
+  return 'en';
+}
+let LANG = detectLang();
+let DATA = null;
+
 try {
-const DATA = await (await fetch('./data.json?t=' + Math.floor(Date.now()/60000), {cache:'no-store'})).json();
-const REG = {
-  'ap-northeast-1': { name: '도쿄', color: 'var(--s-apne1)' },
-  'ap-northeast-2': { name: '서울', color: 'var(--s-apne2)' },
-  'us-east-1':      { name: '버지니아 us-east-1', color: 'var(--s-use1)' },
-  'us-east-2':      { name: '오하이오 us-east-2', color: 'var(--s-use2)' },
-  'us-west-2':      { name: '오레곤 us-west-2',   color: 'var(--s-usw2)' },
+
+const COLORS = {
+  'ap-northeast-1': 'var(--s-apne1)', 'ap-northeast-2': 'var(--s-apne2)',
+  'us-east-1': 'var(--s-use1)', 'us-east-2': 'var(--s-use2)', 'us-west-2': 'var(--s-usw2)',
 };
-const ORDER = Object.keys(REG);
-const TYPE_META = {
-  'p5.48xlarge':  { note: '8×H100 · int4/bf16 프로파일' },
-  'g6e.48xlarge': { note: '8×L40S · int4-g6e 프로파일' },
-  'g6e.24xlarge': { note: '4×L40S · GlobalPruned INT4 후보 · 8/7부터 수집' },
-};
+const ORDER = Object.keys(COLORS);
 const AZ_COLORS = ['var(--s-apne1)', 'var(--s-apne2)', 'var(--s-use1)', 'var(--s-use2)'];
 const SEQ = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
-const RANGES = [ { d: 1, label: '24시간' }, { d: 7, label: '7일' }, { d: 30, label: '30일' }, { d: 90, label: '90일' } ];
+const RANGE_DAYS = [1, 7, 30, 90];
 let curDays = 7;
 const selRegion = {};   // type -> region (AZ 타임라인·히트맵용)
-const kst = ts => new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', hour12: false });
-const kstDay = ts => new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' });
-const shortName = r => REG[r].name.split(' ')[0];
+const t = () => I18N[LANG];
+const regionName = r => t().regions[r].full;
+const shortName = r => t().regions[r].short;
+const kst = ts => new Date(ts).toLocaleString(LOCALE_MAP[LANG], { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', hour12: false });
+const kstDay = ts => new Date(ts).toLocaleString(LOCALE_MAP[LANG], { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' });
 const last = a => a && a.length ? a[a.length - 1] : null;
 
-document.getElementById('sub').textContent =
-  `token-forge 수집기 · 생성 ${DATA.generated} · KST 표기 · 가격은 리전 내 최저 AZ 스팟가($/h)`;
-document.getElementById('legend').innerHTML = ORDER.map(r =>
-  `<span class="chip"><span class="sw" style="background:${REG[r].color}"></span>${REG[r].name}</span>`).join('');
+// ---- chrome (language-only strings, no DATA dependency) ----
+function renderChrome() {
+  document.documentElement.lang = LANG;
+  document.title = t().title;
+  document.getElementById('h1').textContent = t().h1;
+
+  const langBox = document.getElementById('langsw');
+  langBox.setAttribute('role', 'group');
+  langBox.setAttribute('aria-label', t().langGroupLabel);
+  langBox.innerHTML = [['en', 'EN'], ['ko', '한국어'], ['ja', '日本語']].map(([code, label]) =>
+    `<button type="button" data-lang="${code}" aria-pressed="${code === LANG}">${label}</button>`).join('');
+  langBox.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.lang === LANG) return;
+    LANG = b.dataset.lang;
+    try { localStorage.setItem('tf-lang', LANG); } catch (err) { /* ignore */ }
+    renderChrome();
+    if (DATA) { renderSummary(); renderAll(); }
+  };
+
+  const rangeBox = document.getElementById('ranges');
+  rangeBox.setAttribute('aria-label', t().periodGroupLabel);
+  rangeBox.innerHTML = RANGE_DAYS.map(d =>
+    `<button type="button" data-d="${d}" aria-pressed="${d === curDays}">${t().ranges[d]}</button>`).join('');
+  rangeBox.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    curDays = Number(b.dataset.d);
+    rangeBox.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    renderAll();
+  };
+
+  document.getElementById('topHeading').innerHTML =
+    `${t().topHeading} <span class="span" style="font-weight:400;font-size:0.82rem;color:var(--muted)">${t().topHeadingSpan}</span>`;
+
+  document.getElementById('explain').innerHTML = `
+    <div class="card">
+      <h3>${t().explain1Title}</h3>
+      <p>${t().explain1P}</p>
+      <ul>${t().explain1Li.map(li => `<li>${li}</li>`).join('')}</ul>
+    </div>
+    <div class="card">
+      <h3>${t().explain2Title}</h3>
+      <p>${t().explain2P}</p>
+      <ul>${t().explain2Li.map(li => `<li>${li}</li>`).join('')}</ul>
+    </div>`;
+
+  document.getElementById('fine').textContent = t().footnote;
+
+  if (DATA) {
+    document.getElementById('legend').innerHTML = ORDER.map(r =>
+      `<span class="chip"><span class="sw" style="background:${COLORS[r]}"></span>${regionName(r)}</span>`).join('');
+    document.getElementById('sub').textContent = t().sub(DATA.generated);
+  }
+}
+renderChrome();
+
+DATA = await (await fetch('./data.json?t=' + Math.floor(Date.now()/60000), {cache:'no-store'})).json();
+renderChrome(); // fill in DATA-dependent sub/legend now that DATA is available
 
 // ---- 확보 안정성 순위·타일 (데이터에서 자동 계산) ----
 // 배치점수는 시간 단위로 출렁이므로 48h 평균을 1순위로 — "안정적 확보" 관점의 줄 세우기.
@@ -207,21 +417,23 @@ function rankingRows(type) {
   rows.sort((a, b) => ((b.avg48 ?? -1) - (a.avg48 ?? -1)) || (b.score - a.score) || ((a.price ?? 99) - (b.price ?? 99)));
   return rows;
 }
-const RANKS = Object.fromEntries(DATA.types.map(t => [t, rankingRows(t)]));
-document.getElementById('ranking').innerHTML = DATA.types.map(type =>
-  `<div class="tblwrap"><div class="cap">${type}</div>
-   <table><thead><tr><th>#</th><th>리전</th><th>48h 평균</th><th>현재 점수</th><th>현재 최저가</th></tr></thead><tbody>${
-    RANKS[type].map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td>
-      <td><span class="sw" style="background:${REG[x.region].color}"></span>${shortName(x.region)}</td>
-      <td><b>${x.avg48 ?? '—'}</b></td><td>${x.score}</td>
-      <td>${x.price != null ? '$' + x.price.toFixed(2) : '—'}</td></tr>`).join('')
-  }</tbody></table></div>`).join('');
-document.getElementById('tiles').innerHTML = DATA.types.map(type => {
-  const best = RANKS[type][0];
-  if (!best) return `<div class="tile"><div class="k">${type}</div><div class="v">데이터 없음</div></div>`;
-  return `<div class="tile"><div class="k">${type} 최안정</div><div class="v">${shortName(best.region)} · 48h 평균 ${best.avg48 ?? '—'}</div>
-    <div class="d">현재 점수 ${best.score} · $${best.price?.toFixed(2)}/h</div></div>`;
-}).join('');
+function renderSummary() {
+  const RANKS = Object.fromEntries(DATA.types.map(type => [type, rankingRows(type)]));
+  document.getElementById('ranking').innerHTML = DATA.types.map(type =>
+    `<div class="tblwrap"><div class="cap">${type}</div>
+     <table><thead><tr>${t().rankHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
+      RANKS[type].map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td>
+        <td><span class="sw" style="background:${COLORS[x.region]}"></span>${shortName(x.region)}</td>
+        <td><b>${x.avg48 ?? '—'}</b></td><td>${x.score}</td>
+        <td>${x.price != null ? '$' + x.price.toFixed(2) : '—'}</td></tr>`).join('')
+    }</tbody></table></div>`).join('');
+  document.getElementById('tiles').innerHTML = DATA.types.map(type => {
+    const best = RANKS[type][0];
+    if (!best) return `<div class="tile"><div class="k">${type}</div><div class="v">${t().noData}</div></div>`;
+    return `<div class="tile"><div class="k">${t().mostStable(type)}</div><div class="v">${t().avg48Line(shortName(best.region), best.avg48 ?? '—')}</div>
+      <div class="d">${t().currentScoreLine(best.score, best.price?.toFixed(2))}</div></div>`;
+  }).join('');
+}
 
 // ---- 공용 시계열 차트 ----
 function clampSeries(arr, cutoff) {
@@ -237,21 +449,21 @@ function drawChart(card, seriesMap, opts) {
   card.querySelectorAll('svg, .tip, .empty').forEach(e => e.remove());
   const W = 560, H = 250, m = { t: 12, r: 118, b: 26, l: opts.yMax === 10 ? 26 : 40 };
   const keys = opts.keys.filter(k => seriesMap[k] && seriesMap[k].length > 1);
-  if (!keys.length) { card.insertAdjacentHTML('beforeend', '<div class="empty">선택한 기간에 데이터가 없습니다</div>'); return; }
+  if (!keys.length) { card.insertAdjacentHTML('beforeend', `<div class="empty">${t().chartEmpty}</div>`); return; }
   let tMin = Infinity, tMax = -Infinity, vMax = 0;
   keys.forEach(k => seriesMap[k].forEach(([ts, v]) => {
-    const t = Date.parse(ts); tMin = Math.min(tMin, t); tMax = Math.max(tMax, t); vMax = Math.max(vMax, v);
+    const tt = Date.parse(ts); tMin = Math.min(tMin, tt); tMax = Math.max(tMax, tt); vMax = Math.max(vMax, v);
   }));
   const yMax = opts.yMax || Math.max(1, Math.ceil(vMax * 1.15));
-  const x = t => m.l + (t - tMin) / (tMax - tMin) * (W - m.l - m.r);
+  const x = tt => m.l + (tt - tMin) / (tMax - tMin) * (W - m.l - m.r);
   const y = v => H - m.b - v / yMax * (H - m.t - m.b);
   const xfmt = (tMax - tMin) > 3 * 864e5 ? kstDay : kst;
   let g = '';
   const yTicks = opts.yMax === 10 ? [0, 2, 4, 6, 8, 10] : Array.from({ length: 5 }, (_, i) => Math.round(yMax / 4 * i * 100) / 100);
   yTicks.forEach(v => { g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
     <text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${opts.yFmt(v)}</text>`; });
-  for (let i = 0; i <= 4; i++) { const t = tMin + (tMax - tMin) * i / 4;
-    g += `<text x="${x(t)}" y="${H - 8}" text-anchor="middle">${xfmt(t)}</text>`; }
+  for (let i = 0; i <= 4; i++) { const tt = tMin + (tMax - tMin) * i / 4;
+    g += `<text x="${x(tt)}" y="${H - 8}" text-anchor="middle">${xfmt(tt)}</text>`; }
   g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)" stroke-width="1"/>`;
   keys.forEach((k, i) => {
     const off = opts.step ? (i - (keys.length - 1) / 2) * 2 : 0;
@@ -273,15 +485,15 @@ function drawChart(card, seriesMap, opts) {
   const xh = svg.querySelector('.xh');
   svg.addEventListener('mousemove', e => {
     const rect = svg.getBoundingClientRect();
-    const t = tMin + (Math.min(Math.max((e.clientX - rect.left) / rect.width * W, m.l), W - m.r) - m.l) / (W - m.l - m.r) * (tMax - tMin);
-    xh.setAttribute('x1', x(t)); xh.setAttribute('x2', x(t)); xh.setAttribute('visibility', 'visible');
+    const tt = tMin + (Math.min(Math.max((e.clientX - rect.left) / rect.width * W, m.l), W - m.r) - m.l) / (W - m.l - m.r) * (tMax - tMin);
+    xh.setAttribute('x1', x(tt)); xh.setAttribute('x2', x(tt)); xh.setAttribute('visibility', 'visible');
     let rows = '';
     keys.forEach(k => {
       const s = seriesMap[k]; let best = s[0];
-      for (const p of s) { if (Math.abs(Date.parse(p[0]) - t) < Math.abs(Date.parse(best[0]) - t)) best = p; }
+      for (const p of s) { if (Math.abs(Date.parse(p[0]) - tt) < Math.abs(Date.parse(best[0]) - tt)) best = p; }
       rows += `<div class="row"><span class="sw" style="background:${opts.colorOf(k)}"></span>${opts.labelOf(k)}<b>${opts.yFmt(best[1])}</b></div>`;
     });
-    tip.innerHTML = `<div class="t">${kst(t)} KST</div>` + rows;
+    tip.innerHTML = `<div class="t">${kst(tt)} KST</div>` + rows;
     tip.style.display = 'block';
     const cr = card.getBoundingClientRect();
     let lx = e.clientX - cr.left + 14;
@@ -294,13 +506,13 @@ function drawChart(card, seriesMap, opts) {
 // ---- 요일×시간 히트맵 (KST, 전체 기간 평균) ----
 function renderHeatmap(el, type, region) {
   const s = DATA.scores[type]?.[region];
-  if (!s || !s.length) { el.innerHTML = '<div class="empty">이 리전은 데이터가 없습니다</div>'; return; }
+  if (!s || !s.length) { el.innerHTML = `<div class="empty">${t().heatmapNoData}</div>`; return; }
   const agg = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => []));
   for (const [ts, v] of s) {
     const d = new Date(Date.parse(ts) + 9 * 3600e3);   // KST
     agg[d.getUTCDay()][d.getUTCHours()].push(v);
   }
-  const dows = ['일', '월', '화', '수', '목', '금', '토'];
+  const dows = t().dows;
   const order = [1, 2, 3, 4, 5, 6, 0];   // 월~일
   let h = '<div class="hm"><div></div>';
   for (let c = 0; c < 24; c++) h += `<div class="cl">${c % 6 === 0 ? c : ''}</div>`;
@@ -308,11 +520,11 @@ function renderHeatmap(el, type, region) {
     h += `<div class="lab">${dows[d]}</div>`;
     for (let c = 0; c < 24; c++) {
       const vs = agg[d][c];
-      if (!vs.length) { h += '<div class="cell" title="데이터 없음"></div>'; continue; }
+      if (!vs.length) { h += `<div class="cell" title="${t().heatmapNoData}"></div>`; continue; }
       const avg = vs.reduce((a, b) => a + b) / vs.length;
       const idx = Math.min(6, Math.max(0, Math.floor((avg - 1) / 9 * 7)));
       const fg = idx >= 3 ? '#ffffff' : '#0b0b0b';
-      h += `<div class="cell f" style="background:${SEQ[idx]};color:${fg}" title="${dows[d]} ${c}시 평균 ${avg.toFixed(1)} (표본 ${vs.length})">${Math.round(avg)}</div>`;
+      h += `<div class="cell f" style="background:${SEQ[idx]};color:${fg}" title="${t().heatmapCellTitle(dows[d], c, avg.toFixed(1), vs.length)}">${Math.round(avg)}</div>`;
     }
   }
   el.innerHTML = h + '</div>';
@@ -328,11 +540,11 @@ function renderTypeExtras(type) {
   const azids = Object.keys(DATA.azScores[type] || {}).filter(a => DATA.azMeta[a]?.region === region).sort();
   const seriesMap = {};
   azids.forEach(a => { seriesMap[a] = clampSeries(DATA.azScores[type][a], cutoff); });
-  azCard.querySelector('h3').innerHTML = `AZ별 배치점수 — ${shortName(region)} <span class="span">기간 필터 적용</span>`;
+  azCard.querySelector('h3').innerHTML = t().azChartTitleFor(shortName(region));
   drawChart(azCard, seriesMap, { keys: azids, yMax: 10, step: true, yFmt: v => String(v),
     colorOf: a => AZ_COLORS[azids.indexOf(a) % AZ_COLORS.length], labelOf: a => a.split('-').pop() });
   const hmCard = sec.querySelector('.hm-card');
-  hmCard.querySelector('h3').innerHTML = `요일×시간 히트맵 (KST) — ${shortName(region)} <span class="span">전체 기간 평균 점수</span>`;
+  hmCard.querySelector('h3').innerHTML = t().hmChartTitleFor(shortName(region));
   renderHeatmap(hmCard.querySelector('.hm-body'), type, region);
 }
 function renderAll() {
@@ -349,19 +561,17 @@ function renderAll() {
     const noPool = (DATA.noPool?.[type] || []);
     const sec = document.createElement('section'); sec.className = 'type'; sec.dataset.type = type;
     sec.innerHTML = `<h2>${type}</h2>
-      <p class="note">${TYPE_META[type].note}${noPool.length
-        ? ` · <b>스팟 풀 미개설: ${noPool.map(shortName).join(', ')}</b> — 데이터 누락이 아니라 해당 리전에 이 타입의 스팟 시장 자체가 없음(가격 기록 90일 0건, 배치점수 API 응답 제외)`
-        : ''}</p>`;
+      <p class="note">${t().typeNotes[type]}${noPool.length ? t().noPoolSuffix(noPool.map(shortName).join(', ')) : ''}</p>`;
     const grid1 = document.createElement('div'); grid1.className = 'charts';
-    const c1 = document.createElement('div'); c1.className = 'card'; c1.innerHTML = '<h3>배치점수 (1~10)</h3>';
-    const c2 = document.createElement('div'); c2.className = 'card'; c2.innerHTML = '<h3>스팟 최저가 ($/h, 리전 내 최저 AZ)</h3>';
+    const c1 = document.createElement('div'); c1.className = 'card'; c1.innerHTML = `<h3>${t().chartScoreTitle}</h3>`;
+    const c2 = document.createElement('div'); c2.className = 'card'; c2.innerHTML = `<h3>${t().chartPriceTitle}</h3>`;
     grid1.appendChild(c1); grid1.appendChild(c2); sec.appendChild(grid1);
     const chips = document.createElement('div'); chips.className = 'chips'; chips.style.marginBottom = '10px';
     chips.innerHTML = ORDER.map(r => `<button type="button" data-r="${r}" aria-pressed="false">${shortName(r)}</button>`).join('');
     sec.appendChild(chips);
     const grid2 = document.createElement('div'); grid2.className = 'charts';
-    const az = document.createElement('div'); az.className = 'card az-card'; az.innerHTML = '<h3>AZ별 배치점수</h3>';
-    const hm = document.createElement('div'); hm.className = 'card hm-card'; hm.innerHTML = '<h3>요일×시간 히트맵</h3><div class="hm-body"></div>';
+    const az = document.createElement('div'); az.className = 'card az-card'; az.innerHTML = `<h3>${t().azChartTitleFor(shortName(selRegion[type]))}</h3>`;
+    const hm = document.createElement('div'); hm.className = 'card hm-card'; hm.innerHTML = `<h3>${t().hmChartTitleFor(shortName(selRegion[type]))}</h3><div class="hm-body"></div>`;
     grid2.appendChild(az); grid2.appendChild(hm); sec.appendChild(grid2);
     const rowsData = Object.entries(DATA.azScores[type] || {}).map(([azid, series]) => {
       const meta = DATA.azMeta[azid] || { region: '?', azname: '?' };
@@ -372,17 +582,17 @@ function renderAll() {
         avg: Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10, max: Math.max(...v), price };
     }).filter(Boolean).sort((a, b) => b.latest - a.latest || b.avg - a.avg);
     const tw = document.createElement('div'); tw.className = 'tblwrap'; tw.style.marginTop = '14px';
-    tw.innerHTML = `<table><thead><tr><th>AZ ID</th><th>리전</th><th>AZ 이름</th><th>최근 점수</th><th>기간 평균</th><th>기간 최대</th><th>현재 스팟가</th></tr></thead><tbody>${
-      rowsData.map(a => { const r = REG[a.region] || { name: a.region, color: 'var(--muted)' };
-        return `<tr${a.latest >= 3 ? ' class="good"' : ''}><td><span class="sw" style="background:${r.color}"></span>${a.azid}</td>
-        <td>${r.name}</td><td>${a.azname}</td>
+    tw.innerHTML = `<table><thead><tr>${t().azTableHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
+      rowsData.map(a => { const color = COLORS[a.region] || 'var(--muted)'; const rname = t().regions[a.region]?.full || a.region;
+        return `<tr${a.latest >= 3 ? ' class="good"' : ''}><td><span class="sw" style="background:${color}"></span>${a.azid}</td>
+        <td>${rname}</td><td>${a.azname}</td>
         <td>${a.latest}</td><td>${a.avg}</td><td>${a.max}</td>
         <td>${a.price != null ? '$' + a.price.toFixed(2) : '—'}</td></tr>`; }).join('')
     }</tbody></table>`;
     sec.appendChild(tw);
     secRoot.appendChild(sec);
-    drawChart(c1, scores, { keys: ORDER, yMax: 10, step: true, yFmt: v => String(v), colorOf: r => REG[r].color, labelOf: shortName });
-    drawChart(c2, prices, { keys: ORDER, step: false, yFmt: v => '$' + Number(v).toFixed(v >= 10 ? 1 : 2), colorOf: r => REG[r].color, labelOf: shortName });
+    drawChart(c1, scores, { keys: ORDER, yMax: 10, step: true, yFmt: v => String(v), colorOf: r => COLORS[r], labelOf: shortName });
+    drawChart(c2, prices, { keys: ORDER, step: false, yFmt: v => '$' + Number(v).toFixed(v >= 10 ? 1 : 2), colorOf: r => COLORS[r], labelOf: shortName });
     chips.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       selRegion[type] = b.dataset.r;
@@ -391,18 +601,15 @@ function renderAll() {
     renderTypeExtras(type);
   });
 }
-const rangeBox = document.getElementById('ranges');
-rangeBox.innerHTML = RANGES.map(r =>
-  `<button type="button" data-d="${r.d}" aria-pressed="${r.d === curDays}">${r.label}</button>`).join('');
-rangeBox.addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  curDays = Number(b.dataset.d);
-  rangeBox.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  renderAll();
-});
+
+renderSummary();
 renderAll();
 
-} catch (e) { document.getElementById('sections').innerHTML = '<p class="empty">data.json 로드 실패: ' + e + ' — 첫 게시 전이거나 네트워크 문제입니다.</p>'; console.error(e); }
+} catch (e) {
+  const LANG_SAFE = (typeof LANG !== 'undefined' && I18N[LANG]) ? LANG : 'en';
+  document.getElementById('sections').innerHTML = `<p class="empty">${I18N[LANG_SAFE].loadError(e)}</p>`;
+  console.error(e);
+}
 })();
 </script>
 </body>
