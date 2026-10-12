@@ -1,0 +1,33 @@
+name: Dashboard Pages
+
+# 대시보드 정적 페이지(assets/dashboard)를 GitHub Pages(spot.roboco.io)로 배포한다.
+# data.json은 수집기 스택의 CloudFront가 계속 제공하며, 페이지는 이를 교차 출처로 fetch한다.
+on:
+  push:
+    branches: [main]
+    paths: ['assets/dashboard/**', '.github/workflows/dashboard-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: assets/dashboard
+      - id: deployment
+        uses: actions/deploy-pages@v4

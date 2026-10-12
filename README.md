@@ -104,7 +104,7 @@ repeated-context patterns typical of vibe coding.
 roboco runs an always-on **GPU spot availability (placement score) x pricing public
 service**:
 
-- **Dashboard**: https://d16jdvzof4zpo7.cloudfront.net — placement-score trends by
+- **Dashboard**: https://spot.roboco.io — placement-score trends by
   region/AZ for the major p5 and g6e instance types, spot pricing, a day-of-week x
   hour-of-day heatmap, and a value-for-money ranking (refreshed hourly, 90-day history)
 - **Data feed**: https://d16jdvzof4zpo7.cloudfront.net/data.json — fully CORS-enabled.

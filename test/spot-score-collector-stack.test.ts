@@ -101,6 +101,22 @@ test('CloudFront가 S3 website 오리진 앞에서 HTTPS 리다이렉트 + CORS 
   });
 });
 
+test('기존 CloudFront 대시보드 경로(/, /index.html)는 spot.roboco.io로 301, data.json은 제외', () => {
+  const t = makeCollectorTemplate();
+  const fns = t.findResources('AWS::CloudFront::Function');
+  const code: string = Object.values(fns)[0].Properties.FunctionCode;
+  expect(code).toContain('https://spot.roboco.io');
+  expect(code).toContain('301');
+  expect(code).not.toContain('data.json');
+  t.hasResourceProperties('AWS::CloudFront::Distribution', {
+    DistributionConfig: Match.objectLike({
+      DefaultCacheBehavior: Match.objectLike({
+        FunctionAssociations: [Match.objectLike({ EventType: 'viewer-request' })],
+      }),
+    }),
+  });
+});
+
 test('역할에 GetSpotPlacementScores와 테이블 BatchWriteItem 권한', () => {
   const t = makeCollectorTemplate();
   // arrayWith는 패턴 순서를 부분수열로 요구하므로 문장별로 따로 단언한다
