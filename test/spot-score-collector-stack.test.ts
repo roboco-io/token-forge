@@ -89,8 +89,7 @@ test('CloudFront가 S3 website 오리진 앞에서 HTTPS 리다이렉트 + CORS 
     DistributionConfig: Match.objectLike({
       DefaultCacheBehavior: Match.objectLike({
         ViewerProtocolPolicy: 'redirect-to-https',
-        // 관리형 정책 CORS-AllowAllOrigins (data.json 오픈 데이터 피드용)
-        ResponseHeadersPolicyId: '60669652-455b-4ae9-85a4-c4c02393f86c',
+        ResponseHeadersPolicyId: Match.anyValue(),
       }),
       Origins: Match.arrayWith([
         Match.objectLike({
@@ -112,6 +111,18 @@ test('기존 CloudFront 대시보드 경로(/, /index.html)는 spot.roboco.io로
     DistributionConfig: Match.objectLike({
       DefaultCacheBehavior: Match.objectLike({
         FunctionAssociations: [Match.objectLike({ EventType: 'viewer-request' })],
+      }),
+    }),
+  });
+});
+
+test('피드 CORS 정책은 모든 출처 허용 + 오리진 응답 덮어쓰기', () => {
+  const t = makeCollectorTemplate();
+  t.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
+    ResponseHeadersPolicyConfig: Match.objectLike({
+      CorsConfig: Match.objectLike({
+        AccessControlAllowOrigins: { Items: ['*'] },
+        OriginOverride: true,
       }),
     }),
   });

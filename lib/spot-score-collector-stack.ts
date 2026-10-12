@@ -161,6 +161,17 @@ function handler(event) {
   return event.request;
 }`),
     });
+    // 관리형 CORS-AllowAllOrigins는 요청에 Cache-Control: no-cache가 있으면 CORS 헤더가 빠지는 현상이
+    // 관측되어(2026-10-12, 브라우저 fetch cache:'no-store') 오리진 응답과 무관하게 항상 덮어쓰는 커스텀 정책 사용
+    const feedCorsPolicy = new cloudfront.ResponseHeadersPolicy(this, 'FeedCorsPolicy', {
+      corsBehavior: {
+        accessControlAllowOrigins: ['*'],
+        accessControlAllowMethods: ['GET', 'HEAD', 'OPTIONS'],
+        accessControlAllowHeaders: ['*'],
+        accessControlAllowCredentials: false,
+        originOverride: true,
+      },
+    });
     const dashCdn = new cloudfront.Distribution(this, 'DashboardCdn', {
       defaultBehavior: {
         origin: new origins.HttpOrigin(dashBucket.bucketWebsiteDomainName, {
@@ -168,8 +179,8 @@ function handler(event) {
         }),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: dashCachePolicy,
-        // data.json을 타 오리진에서 fetch로 쓸 수 있게 CORS 허용 (오픈 데이터 피드)
-        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        // data.json을 타 오리진(spot.roboco.io 대시보드 등)에서 fetch로 쓸 수 있게 CORS 허용 (오픈 데이터 피드)
+        responseHeadersPolicy: feedCorsPolicy,
         functionAssociations: [
           { function: dashRedirectFn, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
         ],
