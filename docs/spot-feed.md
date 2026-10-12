@@ -4,8 +4,9 @@ roboco가 공개 운영하는 GPU 스팟 인텔리전스 피드입니다. 수집
 1시간마다 [Spot Placement Score](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-placement-score.html)와
 스팟 가격 히스토리를 수집·집계해 CloudFront로 제공합니다.
 
-- **대시보드**: CloudFront 배포 URL의 `/` (스택 출력 `DashboardCdnUrl`)
-- **데이터 피드**: 같은 URL의 `/data.json` — CORS 전면 허용, 캐시 5분
+- **대시보드**: https://spot.roboco.io — GitHub Pages로 배포(`.github/workflows/dashboard-pages.yml`).
+  기존 CloudFront URL의 `/`는 이 주소로 301 리다이렉트된다.
+- **데이터 피드**: CloudFront 배포 URL(스택 출력 `DashboardCdnUrl`)의 `/data.json` — CORS 전면 허용, 캐시 5분
 - **커버리지**: 인스턴스 타입·리전은 `lib/spot-score-collector-stack.ts` 상단의
   `INSTANCE_TYPES` / `REGIONS` 상수가 기준. 무한정 추가할 수 없음 —
   `GetSpotPlacementScores`는 계정당 조회 구성 수에 한도가 있다.

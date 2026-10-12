@@ -13,6 +13,8 @@ import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 
 const INSTANCE_TYPES = 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge,g6e.12xlarge';
 const REGIONS = 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2';
+// 대시보드 페이지 공개 주소 (GitHub Pages — .github/workflows/dashboard-pages.yml)
+const DASHBOARD_URL = 'https://spot.roboco.io';
 
 /**
  * 스팟 배치 점수 수집기 — 서빙 스택과 독립적으로 상시 가동되는 별도 스택.
@@ -145,6 +147,20 @@ exports.handler = async () => {
       minTtl: cdk.Duration.seconds(0),
       maxTtl: cdk.Duration.hours(1),
     });
+    // 대시보드 페이지는 GitHub Pages(DASHBOARD_URL)로 이전 — 기존 CloudFront URL의 페이지 경로만
+    // 301로 넘기고, data.json 등 나머지(구버전 CLI feedUrl 포함)는 그대로 S3에서 제공한다
+    const dashRedirectFn = new cloudfront.Function(this, 'DashboardRedirectFn', {
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var uri = event.request.uri;
+  if (uri === '/' || uri === '/index.html') {
+    return { statusCode: 301, statusDescription: 'Moved Permanently',
+      headers: { location: { value: '${DASHBOARD_URL}' } } };
+  }
+  return event.request;
+}`),
+    });
     const dashCdn = new cloudfront.Distribution(this, 'DashboardCdn', {
       defaultBehavior: {
         origin: new origins.HttpOrigin(dashBucket.bucketWebsiteDomainName, {
@@ -154,6 +170,9 @@ exports.handler = async () => {
         cachePolicy: dashCachePolicy,
         // data.json을 타 오리진에서 fetch로 쓸 수 있게 CORS 허용 (오픈 데이터 피드)
         responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        functionAssociations: [
+          { function: dashRedirectFn, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
+        ],
       },
       comment: 'token-forge spot dashboard + data feed',
     });
@@ -183,5 +202,6 @@ exports.handler = async () => {
     new cdk.CfnOutput(this, 'ScoresTableName', { value: table.tableName });
     new cdk.CfnOutput(this, 'DashboardUrl', { value: dashBucket.bucketWebsiteUrl });
     new cdk.CfnOutput(this, 'DashboardCdnUrl', { value: 'https://' + dashCdn.distributionDomainName });
+    new cdk.CfnOutput(this, 'DashboardPagesUrl', { value: DASHBOARD_URL });
   }
 }
