@@ -408,7 +408,9 @@ renderChrome();
 
 // 대시보드는 GitHub Pages(spot.roboco.io), 데이터 피드는 CloudFront — 절대 URL로 교차 출처 fetch (피드는 CORS 전면 허용)
 const FEED_URL = 'https://d16jdvzof4zpo7.cloudfront.net/data.json';
-DATA = await (await fetch(FEED_URL + '?t=' + Math.floor(Date.now()/60000), {cache:'no-store'})).json();
+// cache:'no-store' 금지 — 요청에 Cache-Control: no-cache가 붙으면 CloudFront 응답에서 CORS 헤더가 빠진다.
+// 신선도는 분 단위 ?t= 쿼리로 확보한다.
+DATA = await (await fetch(FEED_URL + '?t=' + Math.floor(Date.now()/60000))).json();
 renderChrome(); // fill in DATA-dependent sub/legend now that DATA is available
 
 // ---- 확보 안정성 순위·타일 (데이터에서 자동 계산) ----
