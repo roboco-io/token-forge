@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spot Placement Score × Price Dashboard</title>
+<meta name="description" content="Hourly AWS spot placement scores and lowest spot prices for p5.48xlarge and g6e GPU instances across 5 regions.">
+<link rel="icon" type="image/svg+xml" href="roboco-logo.svg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ROBOCO">
+<meta property="og:url" content="https://spot.roboco.io/">
+<meta property="og:title" content="Spot Placement Score × Price Dashboard">
+<meta property="og:description" content="Hourly AWS spot placement scores and lowest spot prices for p5.48xlarge and g6e GPU instances across 5 regions.">
+<meta property="og:image" content="https://spot.roboco.io/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Spot Placement Score × Price — spot.roboco.io">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://spot.roboco.io/og-image.png">
 <style>
   :root {
     color-scheme: light;
@@ -48,6 +61,9 @@
     margin: 0; padding: 28px 20px 60px; }
   .wrap { max-width: 1080px; margin: 0 auto; }
   header .headrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  header .brandrow { display: flex; align-items: center; gap: 14px; }
+  header .brand { display: block; flex: none; width: 52px; height: 40px; background: var(--ink);
+    -webkit-mask: url(roboco-logo.svg) center / contain no-repeat; mask: url(roboco-logo.svg) center / contain no-repeat; }
   header h1 { font-size: 1.45rem; margin: 0 0 4px; text-wrap: balance; }
   header .sub { color: var(--ink-2); font-size: 0.9rem; margin: 0; }
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 16px 0 6px; }
@@ -129,9 +145,12 @@
 <div class="wrap">
   <header>
     <div class="headrow">
-      <div>
-        <h1 id="h1"></h1>
-        <p class="sub" id="sub"></p>
+      <div class="brandrow">
+        <a class="brand" href="https://roboco.io" aria-label="ROBOCO"></a>
+        <div>
+          <h1 id="h1"></h1>
+          <p class="sub" id="sub"></p>
+        </div>
       </div>
       <div class="langsw" id="langsw"></div>
     </div>
