@@ -24,7 +24,7 @@ export interface SeedDeps {
 export function mkSeedEnsure(
   model: string,
   profile: string,
-  mkDeps: (region: string) => Pick<UpDeps, 'api' | 'exec' | 'log' | 'saveState'>,
+  mkDeps: (region: string) => Pick<UpDeps, 'api' | 'exec' | 'log' | 'saveState' | 'batchLockHolder'>,
 ): (region: string) => Promise<void> {
   return async (region: string) => {
     await ensureStackReady({ model, profile, region }, { ...mkDeps(region), saveState: () => {} });

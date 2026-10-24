@@ -52,6 +52,12 @@ export class AwsApi {
     }
   }
 
+  /** MinSize·Desired 동시 설정 — online READY 후 min=1 고정에 사용 (해제는 setDesired(0)) */
+  async setCapacity(asgName: string, min: number, desired: number): Promise<void> {
+    await this.asg.send(new UpdateAutoScalingGroupCommand(
+      { AutoScalingGroupName: asgName, MinSize: min, DesiredCapacity: desired }));
+  }
+
   async getAsgStatus(asgName: string): Promise<{ desired: number; instanceIds: string[]; inServiceIds: string[] }> {
     const out = await this.asg.send(new DescribeAutoScalingGroupsCommand(
       { AutoScalingGroupNames: [asgName] }));

@@ -393,3 +393,73 @@ describe('R11: allowedCidrs 소스 IP 허용목록', () => {
     expect(code).toContain('203.0.113.7/32');
   });
 });
+
+describe('usage modes (#43)', () => {
+  function tpl(context: Record<string, unknown>): Template {
+    return makeTemplateWithContext(new cdk.App({ context }));
+  }
+  function idleAlarms(t: Template) {
+    return Object.values(t.findResources('AWS::CloudWatch::Alarm'))
+      .filter((r) => (r as { Properties: { MetricName?: string } }).Properties.MetricName === 'RequestCount');
+  }
+
+  test('생략 시 interactive — 유휴 알람 30분, ASG min 1, 출력에 모드 기록', () => {
+    const t = makeTemplate();
+    expect(idleAlarms(t)).toHaveLength(1);
+    t.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', { MinSize: '1', MaxSize: '1' });
+    t.hasOutput('UsageMode', { Value: 'interactive' });
+    t.hasOutput('IdleMinutes', { Value: '30' });
+  });
+
+  test('-c idleMinutes=60 → 12 평가 주기 (5분 배수 그대로)', () => {
+    tpl({ idleMinutes: '60' }).hasResourceProperties('AWS::CloudWatch::Alarm', { MetricName: 'RequestCount', EvaluationPeriods: 12 });
+  });
+
+  test('5분 배수가 아닌 idleMinutes는 반올림하지 않고 synth 실패', () => {
+    expect(() => tpl({ idleMinutes: '12' })).toThrow(/idleMinutes/);
+  });
+
+  test('online — 유휴 알람·Lambda 없음, 출력 IdleMinutes=0', () => {
+    const t = tpl({ usageMode: 'online', minCapacity: 0 });
+    expect(idleAlarms(t)).toHaveLength(0);
+    expect(Object.keys(t.findResources('AWS::Lambda::Function', {
+      Properties: { Environment: { Variables: { ASG_NAME: Match.anyValue() } } },
+    }))).toHaveLength(0);
+    t.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', { MinSize: '0' });
+    t.hasOutput('UsageMode', { Value: 'online' });
+    t.hasOutput('IdleMinutes', { Value: '0' });
+  });
+
+  test('online + idleMinutes>0은 synth 실패', () => {
+    expect(() => tpl({ usageMode: 'online', idleMinutes: '30' })).toThrow(/online/);
+  });
+
+  test('batch — 백스톱 유휴 알람 유지, ASG 기본 min 0', () => {
+    const t = tpl({ usageMode: 'batch' });
+    expect(idleAlarms(t)).toHaveLength(1);
+    t.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', { MinSize: '0' });
+    t.hasOutput('UsageMode', { Value: 'batch' });
+  });
+
+  test('batch + minCapacity=1, 잘못된 모드는 synth 실패', () => {
+    expect(() => tpl({ usageMode: 'batch', minCapacity: '1' })).toThrow(/batch/);
+    expect(() => tpl({ usageMode: 'fp8' })).toThrow(/usageMode/);
+  });
+
+  test('모드 변경은 Launch Template(user-data)을 바꾸지 않는다 — 기존 스택 갱신 시 인스턴스 교체 유발 없음', () => {
+    const lt = (t: Template) => JSON.stringify(t.findResources('AWS::EC2::LaunchTemplate'));
+    expect(lt(tpl({ usageMode: 'online', minCapacity: 0 }))).toBe(lt(tpl({ usageMode: 'interactive', minCapacity: 0 })));
+  });
+});
+
+describe('DeploymentSettings 출력 (#43 — 정책 갱신 시 보안·운영 컨텍스트 보존)', () => {
+  const settings = (t: Template) => JSON.parse((Object.values(t.findOutputs('DeploymentSettings'))[0] as { Value: string }).Value);
+  test('기본: 빈 설정을 버전과 함께 기록', () => {
+    expect(settings(makeTemplate())).toEqual({ v: 1, allowedCidrs: '', azs: '', alertEmail: '' });
+  });
+  test('allowedCidrs(정규화)·azs·alertEmail 기록', () => {
+    const t = makeTemplateWithContext(new cdk.App({ context: {
+      allowedCidrs: '203.0.113.7, 198.51.100.0/24', azs: 'dummy1a', alertEmail: 'ops@example.com' } }));
+    expect(settings(t)).toEqual({ v: 1, allowedCidrs: '203.0.113.7/32,198.51.100.0/24', azs: 'dummy1a', alertEmail: 'ops@example.com' });
+  });
+});

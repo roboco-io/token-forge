@@ -22,9 +22,13 @@ import { fetchFeed } from './placement/feed';
 import { getRtt, tcpConnector } from './placement/latency';
 import { gatherCandidates } from './placement/engine';
 import { runRace } from './commands/race';
+import { runBatch, JobHandle } from './commands/run';
+import { acquireLock, lockHolder } from './lock';
+import { resolveUsagePolicy, describePolicy } from '../lib/usage-mode';
 import checkbox from '@inquirer/checkbox';
 
 const MODELS_DIR = path.join(__dirname, '..', 'models');
+const TF_DIR = path.join(os.homedir(), '.token-forge');
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -63,13 +67,22 @@ export function buildProgram(): Command {
     .description('스팟 LLM 기동 — 리전 생략 시 배치 엔진이 자동 선정 + 병렬 레이스')
     .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
     .option('--region <r>', 'AWS 리전 (지정 시 해당 리전만 사용)')
-    .action(async (model: string, o: { profile?: string; region?: string }) => {
+    .option('--usage-mode <m>', '사용 모드 interactive|online (기본 interactive, batch는 tkf run)')
+    .option('--idle-minutes <n>', 'interactive 유휴 종료 분 (5분 배수 5-1440, 0=비활성, 기본 30)')
+    .action(async (model: string, o: { profile?: string; region?: string; usageMode?: string; idleMinutes?: string }) => {
       const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
-      if (o.region) { // 기존 단일 리전 경로 (동작 불변)
-        await runUp({ model, profile, region: o.region }, {
+      // CLI 경로는 항상 minCapacity=0으로 배포 — online의 min=1은 READY 후 적용
+      const policy = resolveUsagePolicy({ usageMode: o.usageMode, idleMinutes: o.idleMinutes, minCapacity: 0 });
+      if (policy.mode === 'batch') {
+        console.error('batch 모드는 tkf run <model> --region <r> -- <command> [args...]로 실행합니다'); process.exit(1);
+      }
+      console.log(`사용 모드: ${describePolicy(policy)}`);
+      if (o.region) { // 단일 리전 경로
+        await runUp({ model, profile, region: o.region, policy }, {
           api: new AwsApi(o.region), exec: execInherit, probeAuth,
           sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
           saveState, log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
+          batchLockHolder: (key) => lockHolder(TF_DIR, key),
         });
         return;
       }
@@ -82,8 +95,9 @@ export function buildProgram(): Command {
         api: new AwsApi(region), exec: execInherit, probeAuth,
         sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
         saveState, log: (m: string) => console.log(m), timeoutMs: 30 * 60 * 1000,
+        batchLockHolder: (key: string) => lockHolder(TF_DIR, key),
       });
-      const r = await runUpAuto({ model, profile }, {
+      const r = await runUpAuto({ model, profile, policy }, {
         config: cfg,
         gather: () => gatherCandidates({ types, stackName, weightsRepo: rp.weightsRepo }, {
           config: cfg, fetchFeed: (u) => fetchFeed(u), apiFor: (rg) => new AwsApi(rg),
@@ -97,10 +111,42 @@ export function buildProgram(): Command {
           sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
           log: (m) => console.log(m), timeoutMs: 30 * 60 * 1000,
         }),
-        wait: (a) => waitReady({ stackName: a.stackName, outputs: a.outputs }, mkUpDeps(a.region)),
+        wait: (a) => waitReady({ stackName: a.stackName, outputs: a.outputs, policy: a.policy }, mkUpDeps(a.region)),
         saveState, loadState, log: (m) => console.log(m), now: () => new Date(),
       });
       console.log(`완료 — ${r.region} / ${r.endpoint}`);
+    });
+
+  program.command('run <model>')
+    .description('batch 작업 실행 — GPU 기동 → 명령 실행 → 성공·실패·취소·시간 제한 후 GPU 0 (사용: tkf run <model> --region <r> -- <command> [args...])')
+    .argument('<command...>', '실행할 명령과 인자 (-- 뒤에 배열 그대로 전달, 셸 미사용)')
+    .requiredOption('--region <r>', 'AWS 리전 (batch는 단일 리전 전용)')
+    .option('--profile <p>', '모델 프로파일 (기본: yaml 첫 프로파일)')
+    .option('--idle-minutes <n>', '하트비트 유실 시 백스톱 정지 분 (5분 배수 5-1440, 기본 30)')
+    .option('--boot-timeout <min>', '스팟 확보·부팅 대기 상한(분)', '30')
+    .option('--timeout <min>', '작업 실행 상한(분, 0=무제한)', '120')
+    .action(async (model: string, command: string[], o: { region: string; profile?: string; idleMinutes?: string; bootTimeout: string; timeout: string }) => {
+      const profile = o.profile ?? defaultProfile(MODELS_DIR, model);
+      const policy = resolveUsagePolicy({ usageMode: 'batch', idleMinutes: o.idleMinutes, minCapacity: 0 });
+      const bootMin = parseMinutes('--boot-timeout', o.bootTimeout, 1);
+      const jobMin = parseMinutes('--timeout', o.timeout, 0);
+      const r = await runBatch({ model, profile, region: o.region, policy, command,
+        bootTimeoutMs: bootMin * 60000, jobTimeoutMs: jobMin * 60000, killGraceMs: 10000 }, {
+        api: new AwsApi(o.region), exec: execInherit, probeAuth, probe,
+        sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
+        saveState, loadState, log: (m) => console.log(m),
+        acquireLock: (key) => acquireLock(TF_DIR, key),
+        spawnJob,
+        onSignal: (fn) => {
+          const sigs: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+          sigs.forEach((s) => process.on(s, fn));
+          return () => sigs.forEach((s) => process.off(s, fn));
+        },
+        every: (ms, fn) => { const t = setInterval(fn, ms); fn(); return () => clearInterval(t); },
+        after: (ms, fn) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
+      });
+      (r.exitCode === 0 ? console.log : console.error)(r.message);
+      process.exitCode = r.exitCode;
     });
 
   program.command('seed <model>')
@@ -118,6 +164,7 @@ export function buildProgram(): Command {
         api: new AwsApi(region), exec: execInherit, probeAuth,
         sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
         saveState, log: (m: string) => console.log(m), timeoutMs: 30 * 60 * 1000,
+        batchLockHolder: (key: string) => lockHolder(TF_DIR, key),
       });
       const regions = await runSeed({ model, profile, region: o.region }, {
         gather: () => gatherCandidates({ types, stackName, weightsRepo: rp.weightsRepo }, {
@@ -236,6 +283,44 @@ export function buildProgram(): Command {
     });
 
   return program;
+}
+
+/** 분 단위 옵션 — 정수만 허용 (min 이상, 7일 이하) */
+export function parseMinutes(name: string, raw: string, min: number): number {
+  if (!/^\d+$/.test(raw.trim()) || Number(raw) < min || Number(raw) > 10080) {
+    throw new Error(`${name}: ${min}-10080 범위의 정수(분)여야 합니다 (입력: ${raw})`);
+  }
+  return Number(raw);
+}
+
+/**
+ * batch 작업 실행 — 셸 없이 인자 배열 그대로, API 키는 자식 환경변수로만 전달.
+ * 자식을 별도 프로세스 그룹(detached)으로 띄워 신호를 그룹 전체(손자 포함)에 보낸다. 자식이 끝나면
+ * 그룹에 남은 손자도 SIGKILL로 정리하고, 그 뒤로는 kill이 아무것도 하지 않는다(늦은 신호·PID 재사용 방지).
+ * 분리된 그룹은 터미널 Ctrl-C를 직접 받지 않으므로 tkf가 받은 신호를 SIGTERM으로 전달한다.
+ * stdin이 TTY이면 백그라운드 그룹의 TTY 읽기(SIGTTIN 정지)를 피하려고 stdin을 닫는다.
+ * setsid 등으로 그룹을 벗어난 프로세스는 정리 대상이 아니다.
+ */
+export function spawnJob(cmd: string, args: string[], env: Record<string, string>): JobHandle {
+  const p = spawn(cmd, args, {
+    stdio: [process.stdin.isTTY ? 'ignore' : 'inherit', 'inherit', 'inherit'],
+    env: { ...process.env, ...env },
+    detached: true,
+  });
+  let finished = false;
+  const killGroup = (sig: NodeJS.Signals) => {
+    if (p.pid === undefined) return;
+    try { process.kill(-p.pid, sig); } catch { /* ESRCH: 그룹 없음 */ }
+  };
+  const done = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    p.once('error', (e) => { finished = true; reject(e); }); // ENOENT 등 실행 실패
+    p.once('exit', (code, signal) => {
+      killGroup('SIGKILL'); // 자식이 남긴 손자 정리 — 그룹 리더가 끝난 직후 1회
+      finished = true;
+      resolve({ code, signal });
+    });
+  });
+  return { done, kill: (sig) => { if (!finished) killGroup(sig); } };
 }
 
 function execInherit(cmd: string, args: string[]): Promise<number> {
