@@ -18,6 +18,8 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Construct } from 'constructs';
 import { ResolvedProfile } from './model-profile';
+import { resolveUsagePolicy, IDLE_STEP_MINUTES } from './usage-mode';
+import { encodeSettings } from './deployment-settings';
 
 export interface TokenForgeStackProps extends cdk.StackProps {
   resolvedProfile: ResolvedProfile;
@@ -44,6 +46,12 @@ export class TokenForgeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: TokenForgeStackProps) {
     super(scope, id, props);
     const profile = props.resolvedProfile;
+    // 사용 모드 정책(#43) — 잘못되거나 모드와 충돌하는 컨텍스트는 synth 단계에서 거부한다
+    const policy = resolveUsagePolicy({
+      usageMode: this.node.tryGetContext('usageMode'),
+      idleMinutes: this.node.tryGetContext('idleMinutes'),
+      minCapacity: this.node.tryGetContext('minCapacity'),
+    });
 
     // --- 네트워크: 퍼블릭 서브넷 전 AZ (스팟 확보율 극대화), NAT 불필요 ---
     const vpc = new ec2.Vpc(this, 'Vpc', {
@@ -183,7 +191,8 @@ export class TokenForgeStack extends cdk.Stack {
       capacityRebalance: true, // 중단 경고 시 선제 교체
       // -c minCapacity=0: 스팟 용량 고갈 시 CFN 생성을 빈 ASG로 통과시키고
       // 배포 후 desired=1로 올려 ASG가 무기한 재시도하게 함 (스펙 §6 의도)
-      minCapacity: Number(this.node.tryGetContext('minCapacity') ?? 1),
+      // batch 모드는 기본 0 (작업 래퍼가 수명 동안만 desired=1), online/interactive 기본 1
+      minCapacity: policy.minCapacity,
       maxCapacity: 1, // 스코프: 오토스케일링 없음
       healthChecks: autoscaling.HealthChecks.withAdditionalChecks({
         // 콜드 부팅 실측(g6e.48xlarge, 도쿄): HF 143GB 다운로드+S3 시딩+이미지 풀+8GPU 로드로
@@ -226,8 +235,9 @@ export class TokenForgeStack extends cdk.Stack {
     // --- R11 TLS: CloudFront 프론트 도어 (도메인 불요 HTTPS, 설계 결정 1·3·4) ---
     const allowedCidrs = this.node.tryGetContext('allowedCidrs');
     let ipAllowFn: cloudfront.Function | undefined;
+    let cidrs: string[] = [];
     if (allowedCidrs) {
-      const cidrs = String(allowedCidrs).split(',').map((c) => normalizeCidr(c));
+      cidrs = String(allowedCidrs).split(',').map((c) => normalizeCidr(c));
       // CloudFront Functions(cloudfront-js-2.0)에서 도는 IPv4 CIDR 매칭 — 허용목록 외 403
       const fnCode = [
         `var CIDRS = ${JSON.stringify(cidrs)};`,
@@ -300,10 +310,11 @@ export class TokenForgeStack extends cdk.Stack {
     });
     noCapacityAlarm.addAlarmAction(new cwactions.SnsAction(alertTopic));
 
-    // --- 비용 절감: 유휴 자동 셧다운 (-c idleMinutes=N, 기본 30, 0이면 비활성) ---
-    // ALB 요청이 idleMinutes 동안 0이면 Lambda가 ASG를 0으로 내린다.
+    // --- 비용 절감: 유휴 자동 셧다운 (-c idleMinutes=N, 기본 30, 0이면 비활성 / online은 항상 비활성) ---
+    // ALB 요청이 idleMinutes 동안 0이면 Lambda가 ASG를 0으로 내린다. batch에서는 tkf run의
+    // 하트비트가 끊긴 경우(SIGKILL·호스트 유실)에만 발화하는 고아 GPU 백스톱이다.
     // 재기동은 수동(scripts/start.sh) — 콜드부팅이 있어 자동 웨이크업은 실익 없음.
-    const idleMinutes = Number(this.node.tryGetContext('idleMinutes') ?? 30);
+    const idleMinutes = policy.idleMinutes;
     if (idleMinutes > 0) {
       const idleStopFn = new lambda.Function(this, 'IdleStopFn', {
         runtime: lambda.Runtime.NODEJS_20_X,
@@ -344,7 +355,7 @@ exports.handler = async () => {
         threshold: 0,
         comparisonOperator:
           cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
-        evaluationPeriods: Math.max(1, Math.round(idleMinutes / 5)),
+        evaluationPeriods: idleMinutes / IDLE_STEP_MINUTES, // 해석기가 5분 배수만 허용 — 반올림 없음
         treatMissingData: cloudwatch.TreatMissingData.BREACHING, // 무요청=결측
       });
       new events.Rule(this, 'IdleAlarmRule', {
@@ -369,5 +380,14 @@ exports.handler = async () => {
     new cdk.CfnOutput(this, 'WeightsBucketName', { value: weightsBucket.bucketName });
     // scripts/seed-weights.sh가 시딩 대상 리포를 읽는 용도
     new cdk.CfnOutput(this, 'WeightsRepo', { value: profile.weightsRepo });
+    // tkf CLI가 기존 스택의 정책과 요청 정책을 비교해 cdk deploy 필요 여부를 판단하는 용도
+    new cdk.CfnOutput(this, 'UsageMode', { value: policy.mode });
+    new cdk.CfnOutput(this, 'IdleMinutes', { value: String(policy.idleMinutes) });
+    // 정책 갱신 배포가 보안·운영 컨텍스트를 잃지 않도록 실제 적용된 값을 기록 (lib/deployment-settings.ts)
+    new cdk.CfnOutput(this, 'DeploymentSettings', { value: encodeSettings({
+      allowedCidrs: cidrs.join(','),
+      azs: this.node.tryGetContext('azs') ? String(this.node.tryGetContext('azs')) : '',
+      alertEmail: alertEmail ? String(alertEmail) : '',
+    }) });
   }
 }

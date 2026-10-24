@@ -9,6 +9,9 @@ export async function runStatus({ api, state, probe }: Deps): Promise<string[]> 
   const lines = [`대상: ${state.model}/${state.profile} @ ${state.region} (${stackName})`];
   const outputs = await api.getStackOutputs(stackName);
   if (!outputs) return [...lines, '스택 없음 — tkf up으로 생성하세요'];
+  lines.push(outputs.UsageMode
+    ? `모드: ${outputs.UsageMode} (유휴 종료 ${outputs.IdleMinutes === '0' ? '없음' : `${outputs.IdleMinutes}분`})`
+    : '모드: 기록 없음(구버전 스택 — 다음 tkf up에서 정책 갱신 배포)');
 
   const asgName = await api.getAsgName(stackName);
   const { desired, instanceIds } = await api.getAsgStatus(asgName);

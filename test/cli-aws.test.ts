@@ -178,3 +178,10 @@ describe('배치 엔진용 확장 메서드', () => {
     expect(await new AwsApi('ap-northeast-1').getPlacementScore(['g6e.12xlarge'], 'ap-northeast-1')).toBeNull();
   });
 });
+
+test('setCapacity — MinSize와 DesiredCapacity를 함께 설정 (online READY 후 min=1)', async () => {
+  asgMock.on(UpdateAutoScalingGroupCommand).resolves({});
+  await new AwsApi('ap-northeast-2').setCapacity('my-asg', 1, 1);
+  expect(asgMock.commandCalls(UpdateAutoScalingGroupCommand)[0].args[0].input)
+    .toEqual({ AutoScalingGroupName: 'my-asg', MinSize: 1, DesiredCapacity: 1 });
+});
