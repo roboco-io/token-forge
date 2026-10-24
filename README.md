@@ -13,7 +13,7 @@ usage stats never leave your account.
 
 | Model | Class | Instance | Notes |
 |---|---|---|---|
-| [Qwen3-Coder-30B](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8) | 30B MoE | g6e.12xlarge (about $2.6/h spot) | Recommended default — baseline for the $100-200/month target |
+| [Qwen3-Coder-30B](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8) | 30B MoE | g6e.12xlarge (about $2.6/h spot) | Recommended default — the hourly price used in the cost examples |
 | [GLM-4.6](https://huggingface.co/zai-org/GLM-4.6-FP8) | 355B MoE | p5.48xlarge | Large-scale option |
 | [Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B) | 250B MoE | p5.48xlarge / g6e.48xlarge | Requires a dedicated vLLM fork |
 
@@ -25,11 +25,15 @@ Three pillars matter here, and all three are backed by measurements from real de
 see **[cost, security, and convenience details](docs/value-proposition.md)** (Korean) for the
 evidence and numbers.
 
-- **Cost — pay only for the time you use**: 100% spot (roughly a quarter to a third of
-  on-demand pricing) + automatic shutdown after 30 minutes idle + a cost guard that resets
-  GPU capacity to zero on every failure path + weights pre-seeded via cheap CPU spot
-  instances (measured at 8 minutes / $0.03). About **$100-200/month** for a 30B-class
-  model, and $0 in GPU charges during months you don't use it.
+- **Cost — you pay for GPU running time, including boot and idle time**: 100% spot (roughly
+  a quarter to a third of on-demand pricing) + a usage mode that decides when the GPU stops
+  (interactive: 30 minutes without requests, batch: right after the job, online: never) + a
+  cost guard that resets GPU capacity to zero on every failure path + weights pre-seeded via
+  cheap CPU spot instances (measured at 8 minutes / $0.03). A $100-200/month target for a
+  30B-class model holds only for interactive or batch use with limited hours; an online
+  endpoint that runs 24 hours costs about $1,872/month at $2.60/h. GPU charges are $0 in
+  months you don't start a GPU, but the ALB and S3 cache are still billed until
+  `tkf down --purge`. See [Usage modes and what you actually pay](#usage-modes-and-what-you-actually-pay).
 - **Security — no-exfiltration by architecture**: inference, prompts, and usage stats stay
   entirely inside your account, with no telemetry (the only outbound traffic is HF
   downloads, AWS API calls, and anonymous GET requests to the feed — and even the feed can
@@ -55,7 +59,7 @@ volumes, or run GPU workloads in concentrated bursts**.
    inside your own AWS account, and the whole stack is open source and auditable. For
    this group the alternative is not a commercial API but "nothing at all".
 2. **A heavy power user hitting subscription limits** — agent fan-out burning 100M+
-   tokens a day. Flat GPU-hours (about $100-200/month) mean unlimited tokens: from this
+   tokens a day. You pay for GPU hours, not tokens, so tokens are unlimited while the GPU runs: from this
    volume on, self-hosting matches same-model API pricing and beats first-party commercial
    APIs by multiples. Flat-rate 128K context also avoids context-tiered API billing.
 3. **A batch workload operator** — nightly bulk code analysis or generation that fills
@@ -86,7 +90,7 @@ flowchart LR
         ASG --> EC2["EC2 GPU<br/>DLAMI + Docker (vLLM)<br/>/v1/chat/completions + /v1/messages"]
         EC2 <-- "load/seed weights cache" --> S3[("S3 bucket<br/>(Retain)")]
         SM["Secrets Manager<br/>(API key)"] -.-> EC2
-        IDLE["Idle-watch Lambda<br/>30 min no requests → auto stop"] -.-> ASG
+        IDLE["Idle-watch Lambda<br/>interactive: 30 min no requests → auto stop<br/>(off in online, backstop in batch)"] -.-> ASG
     end
 ```
 
@@ -123,7 +127,7 @@ To run the same collector directly in your own account, use
   how to write an effective appeal.
 - Cost reference (spot pricing, varies by region and time): about **$2.6/hr** for
   g6e.12xlarge, about **$10-13/hr** for g6e.48xlarge, and about **$30-50/hr** for
-  p5.48xlarge. Idle auto-shutdown is on by default, but `cdk destroy` is recommended for
+  p5.48xlarge. Idle auto-shutdown is on in the default interactive mode, but `cdk destroy` is recommended for
   extended periods of non-use.
 - Node 20+, and a bootstrapped account (`cdk bootstrap`). The AWS CDK CLI is bundled as a
   package dependency, so you don't need to install it separately (only required as a
@@ -143,6 +147,8 @@ tkf placement qwen3-coder-30b               # region recommendation table (48h p
 tkf seed qwen3-coder-30b                    # pre-seed weights to S3 only (0 GPUs, prompts for a region)
 tkf up qwen3-coder-30b                      # auto region selection + parallel race launch (R10)
 tkf up qwen3-coder-30b --region ap-northeast-2   # specify a region directly
+tkf up qwen3-coder-30b --usage-mode online  # online: no idle stop, min capacity 1 after READY
+tkf run qwen3-coder-30b --region ap-northeast-2 -- python job.py   # batch: GPU only for the job
 tkf status                                  # check current status
 tkf connect claude                          # connect Claude Code (source ~/.token-forge/env.sh)
 tkf down                                    # stop GPUs (--purge: full teardown, --region: target a specific region)
@@ -150,7 +156,7 @@ tkf rotate-key                             # rotate the API key (applied on next
 tkf config set standby single               # standby policy: race (default, K=2) | single | lazy
 ```
 
-If you omit `--region`, the placement engine ranks candidate regions by combining the
+If you omit `--region` in `tkf up` (`tkf run` always requires it), the placement engine ranks candidate regions by combining the
 public feed's 48-hour placement-score average, EC2 endpoint RTT (24h cache), spot pricing,
 and account quota (in priority order: stability -> latency -> price), then requests spot
 capacity simultaneously across the top K regions and keeps only whichever region acquires
@@ -169,6 +175,7 @@ npm install
 cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-1
 # profiles: int4 (p5) / int4-g6e (g6e, lower cost) / bf16 (p5)
 # options: -c azs=... -c minCapacity=0 -c idleMinutes=60 -c alertEmail=you@example.com
+#          -c usageMode=interactive|batch|online  (see Usage modes)
 #          -c allowedCidrs=203.0.113.0/24  (source-IP allowlist — everything else gets 403)
 ```
 
@@ -221,11 +228,111 @@ See `models/solar-open2-250b.yaml` for the schema (`vllmImage`,
 | Received a spot interruption notice | Normal — the ASG reprovisions automatically. Recovers from the S3 cache in about 15 minutes |
 | HF download failed 3 times | Check the logs, then either terminate the instance (triggering an ASG replacement) or investigate network issues |
 
+## Usage modes and what you actually pay
+
+GPU charges follow the time an instance is running, not the time you spend typing prompts:
+
+> GPU cost = hourly spot price × (inference time + boot time + idle running time)
+
+Boot time (about 8 minutes from the S3 cache) and the idle time before an automatic stop are
+billed at the same hourly rate as inference. ALB, S3, EBS, Secrets Manager, and CloudWatch are
+billed separately. `tkf down` sets the ASG to 0 and the instance then terminates, which usually
+takes a few minutes (check with `tkf status`); GPU billing ends when the instance terminates, not
+when the command returns. The ALB (about $16/month per
+region), the S3 weight cache, and the secrets remain until you run `tkf down --purge`. The EBS
+root volume is billed only while an instance exists. The prices below are examples that assume
+$2.60/h (g6e.12xlarge spot); they are not live prices, and real spot prices change by region
+and time.
+
+Because "no requests" cannot tell a finished batch job, a user on a coffee break, and an online
+service waiting for traffic apart, `tkf` lets you choose a usage mode. The mode is separate from
+the model quantization profile (`--profile`).
+
+| Mode | How the GPU is stopped | Example monthly GPU cost of the stop policy alone |
+| --- | --- | --- |
+| `interactive` (default) | Stops after N minutes without ALB requests (default 30) | 30 min idle × 2 sessions/day × 30 days = $78; with 10 min = $26 |
+| `batch` | `tkf run` stops the GPU as soon as the job ends (success, failure, cancel, or timeout) | Boot + job time, plus the few minutes until the stop request is sent and the instance terminates; no idle wait |
+| `online` | Never stopped automatically; minimum capacity 1 after READY | $2.60 × 24 × 30 = $1,872 |
+
+**interactive** — `tkf up <model>` (or `--usage-mode interactive`). Change the idle window with
+`--idle-minutes N` (CLI) or `-c idleMinutes=N` (CDK). N must be a multiple of 5 between 5 and
+1440, or 0 to disable. CloudWatch evaluates ALB `RequestCount` in 5-minute periods, so other
+values are rejected instead of being rounded down, and the actual stop can happen several
+minutes after N. The default stays at 30 minutes on purpose. The idle watch counts requests
+only, so it cannot see a long streaming response that is still running or work that is
+queued. A shorter safe default needs a separate activity monitor that checks running and
+waiting requests; until then, set a shorter value yourself only if your sessions do not have
+long silent requests.
+
+**batch** — run a job that owns the GPU for its lifetime:
+
+```bash
+tkf run qwen3-coder-30b --region ap-northeast-2 [--timeout 120] [--boot-timeout 30] -- python analyze.py --all
+```
+
+`tkf run` deploys or updates the stack in batch mode, starts one GPU, waits for READY, and runs
+the command after `--` as an argument array without a shell. The child process receives
+`TKF_ENDPOINT`, `TKF_MODEL`, `TKF_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY`; the key is
+never printed. While the job runs, `tkf run` pings the endpoint every minute so the request
+based idle stop does not fire. When the job succeeds, fails, is cancelled (Ctrl-C, SIGTERM,
+SIGHUP), or exceeds `--timeout` (default 120 minutes, `0` = no limit), `tkf run` sets the ASG to
+min/desired 0 and reads the ASG back to confirm desired=0. This confirms that the stop request was
+accepted, not that the instance has already terminated. The command runs in its own process group:
+on timeout or cancel it receives SIGTERM, then SIGKILL after 10 seconds, and any processes left in
+the group (grandchildren) are killed when the command exits. Processes that leave the group (for
+example with `setsid`) are not tracked. If your terminal is the standard input, the command gets no
+stdin; a piped stdin is passed through. The exit code is the job's exit code (124 =
+timeout, 127 = command could not start, 130/143 = cancelled). If the cleanup fails, the run
+reports both the job result and the cleanup error and exits non-zero even if the job succeeded.
+
+`tkf run` refuses to start when the stack in that region already has a running or requested
+GPU (another session, an online service, or an earlier run), so it does not take over or stop an
+instance that it can see. It cannot see another host that starts at the same moment (see below). It checks the ASG twice: before the stack update and again right before
+it raises the capacity. A lock file in `~/.token-forge/locks/` stops a second `tkf run`, and also
+`tkf up`/`tkf seed`, on the same host from using that stack while a run is in progress. The lock
+is not removed automatically after a crash; the error message shows the holder's PID and the
+file to delete after you confirm that process is gone. There is no lock across hosts: if two
+hosts start at the same moment, both can pass the ASG check.
+
+If `tkf run` itself is killed with SIGKILL or the host is lost, it cannot clean up. The pings
+stop, and the stack's idle alarm (backstop, default 30 minutes, `--idle-minutes` to change, 0 is
+not allowed) can stop the GPU, but this is not guaranteed and not exact: the stop Lambda runs
+only when the alarm changes to ALARM. If the run dies before the boot probes have moved the alarm
+out of ALARM (roughly the first 5-10 minutes after the GPU was requested), no new change happens and
+the GPU keeps running. Even in the normal case the stop comes some minutes after the configured
+time because of 5-minute evaluation and event delivery. After any crash, run
+`tkf down --region <region>` and check `tkf status`.
+
+**online** — `tkf up <model> --usage-mode online` disables the idle stop and, after READY, sets
+the ASG minimum to 1. The instance is still spot, so an interruption causes a gap of several
+minutes while the ASG replaces it. During stack creation and boot the minimum stays 0, and
+`tkf down` always sets min/desired to 0.
+
+The usage mode belongs to the stack (one per model, profile, and region). When the requested
+mode or idle window differs from the existing stack's, `tkf up`/`tkf run` runs `cdk deploy` to
+update the stack before starting the GPU. The update passes the same `allowedCidrs`, `azs`, and
+`alertEmail` that the stack recorded in its `DeploymentSettings` output, so the IP allowlist, AZ
+selection, and alert subscription are kept. Only the idle alarm and Lambda, the ASG minimum, and the
+outputs change, so the Launch Template and a running instance are not replaced. If that record is
+missing or cannot be read, `tkf` does not update the stack automatically and prints the
+`npx cdk deploy` command to run with the contexts you used originally.
+
+Migration of stacks created before this feature: they have no recorded mode or settings. A plain
+`tkf up` (interactive, 30 minutes) keeps using them unchanged, as before. To use `--usage-mode
+online`, a different `--idle-minutes`, or `tkf run`, first update the stack once by hand with the
+same contexts as the original deployment, for example
+`npx cdk deploy -c model=<m> -c profile=<p> -c region=<r> -c minCapacity=0 -c usageMode=interactive -c idleMinutes=30 [-c allowedCidrs=... -c azs=... -c alertEmail=...]`.
+With CDK directly, use `-c usageMode=interactive|batch|online`.
+Conflicting settings fail at synth time: `online` with `idleMinutes` other than 0, `batch` with
+`idleMinutes=0` or `minCapacity=1`, and unknown modes.
+
 ## Cost reduction (for experimental use)
 
-- **Idle auto-shutdown (on by default)**: if the ALB sees no requests for 30 minutes,
-  instances are automatically scaled down to 0 and an SNS notification is sent.
-  Change the interval with `-c idleMinutes=60`, or disable with `-c idleMinutes=0`.
+- **Idle auto-shutdown (on by default in interactive mode)**: if the ALB sees no requests
+  for 30 minutes, instances are automatically scaled down to 0 and an SNS notification is
+  sent. Change the interval with `-c idleMinutes=60` (multiple of 5, 5-1440), or disable with
+  `-c idleMinutes=0`. Online mode has no idle stop; batch mode uses it only as a backstop.
+  See [Usage modes](#usage-modes-and-what-you-actually-pay).
 - **Manual on/off**:
   ```bash
   scripts/stop.sh  <stack-name> <region>   # stop GPU billing (keeps ALB/S3, about $16/month)

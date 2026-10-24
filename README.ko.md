@@ -12,7 +12,7 @@
 
 | 모델 | 급 | 인스턴스 | 비고 |
 |---|---|---|---|
-| [Qwen3-Coder-30B](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8) | 30B MoE | g6e.12xlarge (약 $2.6/h 스팟) | 권장 기본 — 월 $100-200 목표의 기준 |
+| [Qwen3-Coder-30B](https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8) | 30B MoE | g6e.12xlarge (약 $2.6/h 스팟) | 권장 기본 — 비용 예시에 쓰는 시간당 단가의 기준 |
 | [GLM-4.6](https://huggingface.co/zai-org/GLM-4.6-FP8) | 355B MoE | p5.48xlarge | 대형 선택지 |
 | [Solar-Open2-250B](https://huggingface.co/upstage/Solar-Open2-250B) | 250B MoE | p5.48xlarge / g6e.48xlarge | 전용 vLLM 포크 사용 |
 
@@ -23,9 +23,12 @@
 세 가지 축이 핵심이고, 전부 실배포 실측으로 뒷받침된다 — 근거와 수치는
 **[비용·보안·편의 상세](docs/value-proposition.md)** 참고.
 
-- **비용 — 쓴 시간만큼만**: 100% 스팟(온디맨드의 약 3분의 1에서 4분의 1) + 유휴 30분
-  자동 정지 + 실패 경로마다 GPU를 0으로 되돌리는 비용 가드 + 가중치는 저가 CPU 스팟이
-  선시딩(실측 8분/$0.03). 30B급 기준 **월 $100-200**, 안 쓰는 달은 GPU 요금 0.
+- **비용 — 부팅·유휴를 포함한 GPU 실행 시간만큼**: 100% 스팟(온디맨드의 약 3분의 1에서 4분의 1) +
+  GPU 정지 시점을 정하는 사용 모드(interactive: 무요청 30분, batch: 작업 직후, online: 정지 없음) +
+  실패 경로마다 GPU를 0으로 되돌리는 비용 가드 + 가중치는 저가 CPU 스팟이 선시딩(실측 8분/$0.03).
+  30B급 월 $100-200 목표는 사용 시간이 제한된 interactive·batch 사용에서만 성립한다. 24시간 도는
+  online 엔드포인트는 $2.60/h 기준 월 약 $1,872다. GPU를 켜지 않은 달은 GPU 요금이 0이지만, ALB와
+  S3 캐시는 `tkf down --purge` 전까지 과금된다. [사용 모드와 실제 비용](#사용-모드와-실제-비용) 참고.
 - **보안 — 불반출이 아키텍처**: 추론·프롬프트·사용량 통계 모두 내 계정 안에서 완결,
   텔레메트리 없음(외부 통신은 HF 다운로드·AWS API·피드 익명 GET 3종뿐 — 피드마저
   자가 수집기로 대체 가능). 전송은 CloudFront TLS가 기본이고 ALB 우회 접근은 403,
@@ -47,7 +50,7 @@
    경우. 추론·프롬프트·사용량 통계까지 자기 AWS 계정 안에서 완결되고 전체가 OSS라 감사
    가능하다. 이 그룹에게 대안은 상용 API가 아니라 "아무것도 없음"이다.
 2. **한도에 묶인 헤비 파워유저** — 에이전트 팬아웃으로 일 100M+ 토큰을 태우는 경우.
-   시간 정액(월 약 $100-200)은 토큰 무제한이라, 이 물량부터 동일 모델 API와 동률이 되고
+   토큰이 아니라 GPU 시간에 과금되므로 GPU가 도는 동안 토큰은 무제한이라, 이 물량부터 동일 모델 API와 동률이 되고
    상용 1차 API 대비 수 배 저렴해진다. 128K 컨텍스트 정액도 티어 과금 API 대비 이점.
 3. **배치 워크로드 운영자** — 야간 대량 코드 분석·생성처럼 GPU를 채워 쓰는 경우.
    가동률이 오르면 토큰 단가가 3-5배 개선되는 스팟의 최적 지점이다.
@@ -75,7 +78,7 @@ flowchart LR
         ASG --> EC2["EC2 GPU<br/>DLAMI + Docker(vLLM)<br/>/v1/chat/completions + /v1/messages"]
         EC2 <-- "가중치 캐시 로드/시딩" --> S3[("S3 버킷<br/>(Retain)")]
         SM["Secrets Manager<br/>(API 키)"] -.-> EC2
-        IDLE["유휴 감시 Lambda<br/>30분 무요청 → 자동 정지"] -.-> ASG
+        IDLE["유휴 감시 Lambda<br/>interactive: 30분 무요청 → 자동 정지<br/>(online은 없음, batch는 백스톱)"] -.-> ASG
     end
 ```
 
@@ -105,7 +108,7 @@ roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가
   신청. 신규 계정은 부분 승인이 흔하므로 **[EC2 쿼터 증설 요청 가이드](docs/ec2-quota-guide.md)**
   의 어필 문안 작성법 참고.
 - 비용 참고 (스팟, 리전·시점 변동): g6e.12xlarge 약 **$2.6/hr**, g6e.48xlarge 약
-  **$10-13/hr**, p5.48xlarge 약 **$30-50/hr**. 유휴 자동 정지가 기본이지만 장기
+  **$10-13/hr**, p5.48xlarge 약 **$30-50/hr**. 기본 interactive 모드는 유휴 자동 정지가 켜져 있지만 장기
   미사용 시 `cdk destroy` 권장.
 - Node 20+, 부트스트랩된 계정(`cdk bootstrap`). AWS CDK CLI는 패키지 의존성에
   포함되어 있어 별도 설치가 필요 없다 (소스로 설치할 때만 별도 설치 필요).
@@ -123,6 +126,8 @@ tkf placement qwen3-coder-30b               # 리전 추천 표 (배치점수 48
 tkf seed qwen3-coder-30b                    # 가중치 S3 선시딩만 (GPU 0대, 리전 선택 프롬프트)
 tkf up qwen3-coder-30b                      # 리전 자동 선정 + 병렬 레이스 기동 (R10)
 tkf up qwen3-coder-30b --region ap-northeast-2   # 리전 직접 지정
+tkf up qwen3-coder-30b --usage-mode online  # online: 유휴 정지 없음, READY 후 최소 용량 1
+tkf run qwen3-coder-30b --region ap-northeast-2 -- python job.py   # batch: 작업 동안만 GPU
 tkf status                                  # 상태 확인
 tkf connect claude                          # Claude Code 연결 (source ~/.token-forge/env.sh)
 tkf down                                    # GPU 정지 (--purge: 완전 삭제, --region: 대상 지정)
@@ -130,7 +135,7 @@ tkf rotate-key                             # API 키 회전 (가동 중이면 �
 tkf config set standby single               # 스탠바이 정책: race(기본, K=2) | single | lazy
 ```
 
-`--region`을 생략하면 배치 엔진이 공개 피드의 48시간 배치점수 평균, EC2 엔드포인트
+`tkf up`에서 `--region`을 생략하면(`tkf run`은 항상 필수) 배치 엔진이 공개 피드의 48시간 배치점수 평균, EC2 엔드포인트
 RTT(24h 캐시), 스팟 가격, 계정 쿼터를 종합해 후보 리전을 서열화하고(안정성 → 레이턴시
 → 가격), 상위 K개 리전에 동시에 스팟을 요청해 먼저 확보한 리전만 남긴다(First-Acquired-
 Wins). 피드가 대상 타입을 커버하지 않으면 실시간 배치점수로 자동 폴백한다.
@@ -146,6 +151,7 @@ npm install
 cdk deploy -c model=solar-open2-250b -c profile=int4-g6e -c region=ap-northeast-1
 # 프로파일: int4(p5) / int4-g6e(g6e, 저비용) / bf16(p5)
 # 옵션: -c azs=... -c minCapacity=0 -c idleMinutes=60 -c alertEmail=you@example.com
+#       -c usageMode=interactive|batch|online  (사용 모드 절 참고)
 #       -c allowedCidrs=203.0.113.0/24  (소스 IP 허용목록 — 그 외 전부 403)
 ```
 
@@ -194,10 +200,95 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 | 스팟 중단 알림 수신 | 정상 — ASG가 자동 재프로비저닝. S3 캐시로 약 15분 내 복구 |
 | HF 다운로드 3회 실패 | 로그 확인 후 인스턴스 종료(ASG 교체) 또는 네트워크 점검 |
 
+## 사용 모드와 실제 비용
+
+GPU 요금은 프롬프트를 입력한 시간이 아니라 인스턴스가 실행된 시간에 비례한다.
+
+> GPU 비용 = 시간당 스팟 단가 × (추론 시간 + 부팅 시간 + 유휴 실행 시간)
+
+부팅 시간(S3 캐시 기준 약 8분)과 자동 정지 전까지의 유휴 시간도 추론과 같은 단가로 과금된다.
+ALB, S3, EBS, Secrets Manager, CloudWatch 요금은 별도다. `tkf down`은 ASG를 0으로 설정하고, 인스턴스 종료에는 보통 몇 분이 걸린다(`tkf status`로
+확인). GPU 과금은 명령이 끝난 시점이 아니라 인스턴스가 종료된 시점에 멈춘다. 그 뒤에도
+ALB(리전당 약 $16/월), S3 가중치 캐시, 시크릿은 `tkf down --purge` 전까지 남는다. EBS 루트 볼륨은
+인스턴스가 있는 동안에만 과금된다. 아래 금액은 $2.60/h(g6e.12xlarge 스팟)를 가정한 예시이며
+실시간 가격이 아니다. 실제 스팟 가격은 리전과 시점에 따라 바뀐다.
+
+"요청 없음"만으로는 배치 작업 완료, 대화형 사용자의 휴식, 트래픽을 기다리는 온라인 서비스를
+구분할 수 없다. 그래서 `tkf`는 사용 모드를 선택하게 한다. 사용 모드는 모델 양자화
+프로파일(`--profile`)과 별개다.
+
+| 모드 | GPU 정지 방식 | 정지 정책에서 생기는 월 GPU 비용 예시 |
+| --- | --- | --- |
+| `interactive` (기본) | ALB 요청이 N분(기본 30) 없으면 정지 | 유휴 30분 × 하루 2회 × 30일 = $78, 10분이면 $26 |
+| `batch` | `tkf run`이 작업 종료(성공·실패·취소·시간 제한) 즉시 정지 | 부팅 + 작업 시간, 그리고 정지 요청·인스턴스 종료까지의 몇 분. 유휴 대기는 없음 |
+| `online` | 자동 정지 없음, READY 후 최소 용량 1 | $2.60 × 24 × 30 = $1,872 |
+
+**interactive** — `tkf up <model>`(또는 `--usage-mode interactive`). 유휴 시간은
+`--idle-minutes N`(CLI) 또는 `-c idleMinutes=N`(CDK)으로 바꾼다. N은 5-1440 범위의 5의 배수이거나,
+비활성화를 뜻하는 0이어야 한다. CloudWatch가 ALB `RequestCount`를 5분 단위로 평가하므로 그 밖의 값은
+내림하지 않고 거부하며, 실제 정지는 N분보다 몇 분 늦을 수 있다. 기본값 30분은 의도적으로 유지한다.
+유휴 감시는 요청 수만 보므로 실행 중인 긴 스트리밍 응답이나 대기 중인 작업을 알지 못한다. 기본값을
+안전하게 줄이려면 실행·대기 요청 수를 확인하는 별도 활동 감시가 필요하다. 그 전까지는 긴 무응답
+요청이 없는 사용 패턴일 때만 직접 짧은 값을 설정한다.
+
+**batch** — 작업 수명 동안만 GPU를 소유하는 작업을 실행한다.
+
+```bash
+tkf run qwen3-coder-30b --region ap-northeast-2 [--timeout 120] [--boot-timeout 30] -- python analyze.py --all
+```
+
+`tkf run`은 스택을 batch 모드로 배포 또는 갱신하고, GPU 1대를 기동해 READY를 기다린 뒤 `--` 뒤의
+명령을 셸 없이 인자 배열 그대로 실행한다. 자식 프로세스는 `TKF_ENDPOINT`, `TKF_MODEL`, `TKF_API_KEY`,
+`OPENAI_BASE_URL`, `OPENAI_API_KEY` 환경변수를 받으며, 키는 출력하지 않는다. 작업이 도는 동안
+`tkf run`이 1분마다 엔드포인트를 핑하므로 요청 기반 유휴 정지는 발화하지 않는다. 작업이 성공·실패하거나,
+취소(Ctrl-C, SIGTERM, SIGHUP)되거나, `--timeout`(기본 120분, `0` = 무제한)을 넘으면 `tkf run`이 ASG를
+min/desired 0으로 설정하고 ASG를 다시 읽어 desired=0을 확인한다. 이 확인은 정지 요청이 받아들여졌다는
+뜻이며, 인스턴스가 이미 종료됐다는 뜻은 아니다. 명령은 별도 프로세스 그룹에서 실행된다. 시간 제한이나
+취소 시 SIGTERM을 받고 10초 뒤 SIGKILL을 받으며, 명령이 끝나면 그룹에 남은 프로세스(손자 프로세스)도
+종료된다. `setsid` 등으로 그룹을 벗어난 프로세스는 추적하지 않는다. 표준 입력이 터미널이면 명령에
+stdin을 주지 않고, 파이프로 들어온 stdin은 그대로 전달한다. 종료 코드는 작업의 종료 코드다(124 = 시간 제한,
+127 = 명령 실행 불가, 130/143 = 취소). 정리에 실패하면 작업 결과와 정리 오류를 함께 보고하고, 작업이
+성공했더라도 0이 아닌 코드로 끝난다.
+
+`tkf run`은 해당 리전의 스택에서 GPU가 이미 실행 중이거나 요청된 상태(다른 세션, 온라인 서비스,
+이전 실행)이면 시작을 거부한다. 따라서 보이는 인스턴스는 인수하거나 정지하지 않는다. 같은 순간에 시작하는
+다른 호스트는 볼 수 없다(아래 참고). ASG 검사는
+스택 갱신 전과 용량을 올리기 직전에 두 번 한다. `~/.token-forge/locks/`의 잠금 파일은 실행 중에 같은
+호스트의 두 번째 `tkf run`과 `tkf up`/`tkf seed`가 그 스택을 쓰지 못하게 한다. 비정상 종료 후 남은 잠금은
+자동으로 지우지 않는다. 오류 메시지에 보유 PID와 파일 경로가 나오므로 그 프로세스가 없음을 확인한 뒤
+지운다. 호스트 간 잠금은 없다. 두 호스트가 같은 순간에 시작하면 둘 다 ASG 검사를 통과할 수 있다.
+
+`tkf run` 자체가 SIGKILL로 죽거나 호스트가 유실되면 정리를 할 수 없다. 이때는 핑이 끊기고, 스택의
+유휴 알람(백스톱, 기본 30분, `--idle-minutes`로 변경, 0은 허용하지 않음)이 GPU를 정지할 수 있다. 그러나
+이는 보장되지 않고 시각도 정확하지 않다. 정지 Lambda는 알람이 ALARM으로 바뀔 때만 실행된다. 부팅 프로브가
+알람을 ALARM에서 벗어나게 하기 전(GPU 요청 후 대략 처음 5-10분)에 실행이 죽으면 새 상태 변화가 없어 GPU가
+계속 실행된다. 정상적인 경우에도 5분 단위 평가와 이벤트 전달 때문에 설정 시간보다 몇 분 늦게 정지된다.
+비정상 종료 뒤에는 항상 `tkf down --region <region>`을 실행하고 `tkf status`로 확인한다.
+
+**online** — `tkf up <model> --usage-mode online`은 유휴 정지를 끄고, READY 후 ASG 최소 용량을 1로
+설정한다. 인스턴스는 여전히 스팟이므로 중단되면 ASG가 교체하는 몇 분 동안 응답이 끊긴다. 스택 생성과
+부팅 중에는 최소 용량을 0으로 두며, `tkf down`은 항상 min/desired를 0으로 설정한다.
+
+사용 모드는 스택(모델·프로파일·리전마다 1개)에 속한다. 요청한 모드나 유휴 시간이 기존 스택과 다르면
+`tkf up`/`tkf run`이 GPU를 올리기 전에 `cdk deploy`로 스택을 갱신한다.
+갱신 배포는 스택이 `DeploymentSettings` 출력에 기록한 `allowedCidrs`, `azs`, `alertEmail`을 그대로 다시 전달하므로
+IP 허용목록, AZ 선택, 알림 구독이 유지된다. 바뀌는 것은 유휴 알람·Lambda, ASG 최소 용량, 출력뿐이므로 Launch
+Template과 실행 중인 인스턴스는 교체되지 않는다. 이 기록이 없거나 해석할 수 없으면 `tkf`는 스택을 자동으로
+갱신하지 않고, 최초 배포 때의 컨텍스트를 붙여 실행할 `npx cdk deploy` 명령을 안내한다.
+
+이 기능 이전에 만든 스택의 마이그레이션: 이런 스택에는 모드와 설정 기록이 없다. 옵션 없는 `tkf up`(interactive,
+30분)은 이전처럼 그대로 사용한다. `--usage-mode online`, 다른 `--idle-minutes`, `tkf run`을 쓰려면 먼저 최초 배포와
+같은 컨텍스트로 한 번 수동 갱신한다. 예:
+`npx cdk deploy -c model=<m> -c profile=<p> -c region=<r> -c minCapacity=0 -c usageMode=interactive -c idleMinutes=30 [-c allowedCidrs=... -c azs=... -c alertEmail=...]`.
+CDK를 직접 쓸 때는 `-c usageMode=interactive|batch|online`을 쓴다.
+충돌하는 설정은 synth 단계에서 실패한다: `online`에 0이 아닌 `idleMinutes`, `batch`에
+`idleMinutes=0` 또는 `minCapacity=1`, 알 수 없는 모드.
+
 ## 비용 절감 (실험용 운영)
 
-- **유휴 자동 셧다운(기본 켜짐)**: ALB 요청이 30분간 없으면 인스턴스를 자동으로 0대로 내리고 SNS로 알린다.
-  간격 변경 `-c idleMinutes=60`, 비활성화 `-c idleMinutes=0`.
+- **유휴 자동 셧다운(interactive 모드 기본 켜짐)**: ALB 요청이 30분간 없으면 인스턴스를 자동으로 0대로 내리고 SNS로 알린다.
+  간격 변경 `-c idleMinutes=60`(5의 배수, 5-1440), 비활성화 `-c idleMinutes=0`. online 모드에는 유휴 정지가 없고,
+  batch 모드는 백스톱으로만 쓴다. [사용 모드](#사용-모드와-실제-비용) 참고.
 - **수동 온/오프**:
   ```bash
   scripts/stop.sh  <stack-name> <region>   # GPU 비용 정지 (ALB/S3만 유지, 약 $16/월)
