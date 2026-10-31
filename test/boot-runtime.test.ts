@@ -29,7 +29,13 @@ def work(name,other):
  if os.environ.get('FAIL')==name:
   if os.environ.get('BLOCK'): gate('child')
   sys.exit(7)
- if os.environ.get('HOLD')==name: gate('release')
+ if os.environ.get('HOLD')==name:
+  (p/'held-pid').write_text(str(os.getpid()))
+  # The test owns release; the boot supervisor bounds the held work.
+  deadline=time.monotonic()+float(os.environ['TKF_BOOT_TIMEOUT'])
+  while not (p/'release').exists():
+   if time.monotonic()>=deadline: sys.exit(23)
+   time.sleep(.01)
  if os.environ.get('BLOCK')==name:
   import subprocess
   child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])
@@ -41,6 +47,7 @@ if cmd=='aws':
  if a[0]=='secretsmanager': print(('-' if os.environ.get('DASH_KEY') else '')+'DO_NOT_LOG_SECRET')
  elif a[:2]==['s3api','head-object']: sys.exit(1 if os.environ.get('MISS') else 0)
  elif a[:2]==['logs','create-log-stream']:
+  time.sleep(float(os.environ.get('LOG_CALL_DELAY', '0')))
   if os.environ.get('STREAM_LOST') and not (p/'stream-created').exists():
    mark('stream-created'); sys.exit(255)
   if os.environ.get('STREAM_EXISTS') or os.environ.get('STREAM_LOST'):
@@ -48,6 +55,7 @@ if cmd=='aws':
   if os.environ.get('STREAM_DENIED'):
    print('An error occurred (AccessDeniedException) when calling the CreateLogStream operation: DO_NOT_LOG_SECRET',file=sys.stderr); sys.exit(254)
  elif a[:2]==['logs','put-log-events']:
+  time.sleep(float(os.environ.get('LOG_CALL_DELAY', '0')))
   f=a[a.index('--cli-input-json')+1][7:]; (p/'upload.json').write_text(Path(f).read_text())
   with (p/'uploads.jsonl').open('a') as capture: capture.write(Path(f).read_text()+'\\n')
   if os.environ.get('HOLD_UPLOAD'): gate('release-upload')
@@ -97,7 +105,12 @@ subprocess.Popen = injected
   let output = ''; p.stdout.on('data', x => output += x); p.stderr.on('data', x => output += x);
   const done = new Promise<number | null>(resolve => p.on('close', resolve));
   const events = () => fs.existsSync(`${dir}/events.jsonl`) ? fs.readFileSync(`${dir}/events.jsonl`, 'utf8').trim().split('\n').map(x => JSON.parse(x)) : [];
-  return { dir, p, done, events, output: () => output, clean: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, p, done, events, output: () => output, clean: async () => {
+    // Let the supervisor kill and reap its process groups before deleting gates.
+    if (p.exitCode === null && p.signalCode === null) p.kill('SIGTERM');
+    await done;
+    fs.rmSync(dir, { recursive: true, force: true });
+  } };
 }
 
 test('실제 shell: image와 weights가 gate를 서로 해제한 뒤 READY', async () => {
@@ -111,11 +124,12 @@ test('실제 shell: image와 weights가 gate를 서로 해제한 뒤 READY', asy
     const stamps = upload.logEvents.map((x: { timestamp: number }) => x.timestamp);
     expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
     expect(JSON.stringify(upload)).not.toContain('DO_NOT_LOG_SECRET');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
-async function waitFile(file: string) {
-  for (let i = 0; i < 1000; i++) {
+async function waitFile(file: string, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
     if (fs.existsSync(file)) return;
     await new Promise(r => setTimeout(r, 10));
   }
@@ -190,7 +204,7 @@ test.each(['image', 'weights'])('%s 실패 시 다른 준비 그룹과 손자 �
       for (let i = 0; i < 30 && !noLongerExecuting(pid); i++) await new Promise(r => setTimeout(r, 20));
       expect(noLongerExecuting(pid)).toBe(true);
     }
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test.each(['SIGINT', 'SIGTERM'] as const)('%s 취소 시 손자까지 종료', async signal => {
@@ -205,7 +219,7 @@ test.each(['SIGINT', 'SIGTERM'] as const)('%s 취소 시 손자까지 종료', a
     for (let i = 0; i < 30 && !noLongerExecuting(pid); i++) await new Promise(r => setTimeout(r, 20));
     expect(noLongerExecuting(pid)).toBe(true);
     expect(h.events()).toEqual(expect.arrayContaining([expect.objectContaining({ phase: 'boot', status: 'cancelled' })]));
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test.each([
@@ -241,7 +255,7 @@ test.each([
       expect(noLongerExecuting(Number(fs.readFileSync(`${h.dir}/upload-child`, 'utf8')))).toBe(true);
     }
     if (env.HEALTH_FAIL) expect(h.events()).toContainEqual(expect.objectContaining({ phase: 'container', status: 'complete' }));
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 
@@ -257,7 +271,7 @@ test('진행 중 배치 전송과 READY가 겹쳐도 최종 배치를 다시 전
     const upload = JSON.parse(fs.readFileSync(`${h.dir}/upload.json`, 'utf8'));
     expect(upload.logEvents.map((e: { message: string }) => JSON.parse(e.message)))
       .toContainEqual(expect.objectContaining({ phase: 'boot', status: 'ready' }));
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 20000);
 
 
@@ -268,14 +282,17 @@ test.each(['STREAM_EXISTS', 'STREAM_LOST', 'STREAM_DENIED'])('스트림 오류 �
     expect(h.events()).toContainEqual(expect.objectContaining({ phase: 'upload', status: mode !== 'STREAM_DENIED' ? 'complete' : 'failed' }));
     expect(fs.existsSync(`${h.dir}/upload.json`)).toBe(mode !== 'STREAM_DENIED');
     expect(h.output()).not.toContain('DO_NOT_LOG_SECRET');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test('긴 부팅: 여러 전송의 CW 보고서와 host 보고서가 일치하고 자기 전송 없음', async () => {
-  const h = harness({ HOLD: 'weights', TKF_BOOT_TIMEOUT: '25' });
+  const h = harness({ HOLD: 'weights', LOG_CALL_DELAY: '3', TKF_BOOT_TIMEOUT: '25' });
   try {
-    await waitFile(`${h.dir}/uploads.jsonl`);
-    await new Promise(r => setTimeout(r, 5500));
+    // Two 3s calls delay first delivery without exceeding aws_logs' 4s call limit.
+    await waitFile(`${h.dir}/uploads.jsonl`, 15000);
+    // Cover the 5s polling interval plus a slow put-log-events call.
+    await new Promise(r => setTimeout(r, 8500));
+    expect(noLongerExecuting(Number(fs.readFileSync(`${h.dir}/held-pid`, 'utf8')))).toBe(false);
     const before = fs.readFileSync(`${h.dir}/uploads.jsonl`, 'utf8').trim().split('\n');
     expect(before).toHaveLength(1);
     fs.writeFileSync(`${h.dir}/release`, '');
@@ -290,15 +307,27 @@ test('긴 부팅: 여러 전송의 CW 보고서와 host 보고서가 일치하�
     expect(cw.observedHostToReadyMs).toBe(host.observedHostToReadyMs);
     const missing = remote.filter(e => JSON.parse(e.message).seq !== 2);
     expect(bootReport(JSON.stringify({ events: missing })).boots[0].status).toBe('incomplete');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 30000);
+
+test('HOLD release 전에 테스트가 종료되어도 대기 자식을 정리', async () => {
+  const h = harness({ HOLD: 'weights', TKF_BOOT_TIMEOUT: '25' });
+  try {
+    await waitFile(`${h.dir}/held-pid`);
+    const pid = Number(fs.readFileSync(`${h.dir}/held-pid`, 'utf8'));
+    expect(noLongerExecuting(pid)).toBe(false);
+    await h.clean();
+    expect(noLongerExecuting(pid)).toBe(true);
+    expect(noLongerExecuting(h.p.pid!)).toBe(true);
+  } finally { await h.clean(); }
+}, 15000);
 
 test('실패 이벤트에 확인한 cache와 안전한 exit code 유지', async () => {
   const h = harness({ FAIL: 'image', GATE: '1' });
   try {
     expect(await h.done).toBe(1);
     expect(h.events()).toContainEqual(expect.objectContaining({ phase: 'image', status: 'failed', cache: 'miss', exit_code: 7 }));
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test.each([{ TKF_BOOT_MODE: 'serial' }, { LOCAL: '1' }] as Record<string, string>[])('준비 취소 뒤 supervisor/손자 종료: %j', async env => {
@@ -308,7 +337,7 @@ test.each([{ TKF_BOOT_MODE: 'serial' }, { LOCAL: '1' }] as Record<string, string
     h.p.kill('SIGTERM'); expect(await h.done).toBe(143);
     for (let i = 0; i < 30 && !noLongerExecuting(pid); i++) await new Promise(r => setTimeout(r, 20));
     expect(noLongerExecuting(pid)).toBe(true); expect(noLongerExecuting(h.p.pid!)).toBe(true);
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test('unexpected subprocess 예외 원문과 secret 비노출', async () => {
@@ -318,7 +347,7 @@ test('unexpected subprocess 예외 원문과 secret 비노출', async () => {
     expect(h.output()).not.toContain('DO_NOT_LOG_SECRET'); expect(h.output()).not.toContain('Traceback');
     expect(h.events()).toContainEqual(expect.objectContaining({ phase: 'boot', status: 'failed' }));
     expect(fs.readFileSync(`${h.dir}/uploads.jsonl`, 'utf8')).not.toContain('DO_NOT_LOG_SECRET');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test('로컬 로그 쓰기 실패는 고정 진단을 내고 serving과 원격 이벤트 유지', async () => {
@@ -328,7 +357,7 @@ test('로컬 로그 쓰기 실패는 고정 진단을 내고 serving과 원격 �
     expect(h.output()).toContain('TKF_LOCAL_LOG_WRITE_FAILED'); expect(h.output()).not.toContain('Traceback');
     const batches = fs.readFileSync(`${h.dir}/uploads.jsonl`, 'utf8').trim().split('\n').map(x => JSON.parse(x));
     expect(bootReport(JSON.stringify({ events: batches.flatMap(b => b.logEvents) })).boots[0].status).toBe('ready');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 
@@ -338,7 +367,7 @@ test.each([{ ORPHAN: 'weights', TKF_BOOT_MODE: 'serial' }, { ORPHAN: 'weights', 
     expect(await h.done).toBe(0); const pid = Number(fs.readFileSync(`${h.dir}/child`, 'utf8'));
     for (let i = 0; i < 30 && !noLongerExecuting(pid); i++) await new Promise(r => setTimeout(r, 20));
     expect(noLongerExecuting(pid)).toBe(true);
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test('종료 join deadline에서 uploader 그룹/손자를 죽이고 회수', async () => {
@@ -351,7 +380,7 @@ test('종료 join deadline에서 uploader 그룹/손자를 죽이고 회수', as
     for (let i = 0; i < 30 && !noLongerExecuting(pid); i++) await new Promise(r => setTimeout(r, 20));
     expect(noLongerExecuting(pid)).toBe(true);
     expect(h.events()).toContainEqual(expect.objectContaining({ phase: 'upload', status: 'timeout' }));
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 20000);
 
 test('하이픈으로 시작하는 API 키도 옵션이 아닌 값으로 전달한다', async () => {
@@ -360,7 +389,7 @@ test('하이픈으로 시작하는 API 키도 옵션이 아닌 값으로 전달�
     expect(await h.done).toBe(0);
     expect(h.events()).toContainEqual(expect.objectContaining({ phase: 'boot', status: 'ready' }));
     expect(h.output()).not.toContain('DO_NOT_LOG_SECRET');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
 
 test('vLLM 시작 인자의 비밀은 기록하지 않고 compile 로그는 유지한다', async () => {
@@ -377,5 +406,5 @@ logging.getLogger('vllm.compilation.backends').info('compile-cache-observed')`, 
     expect(r.status).toBe(0);
     expect(r.stdout + r.stderr).not.toContain('DO_NOT_LOG_SECRET');
     expect(r.stdout + r.stderr).toContain('compile-cache-observed');
-  } finally { h.clean(); }
+  } finally { await h.clean(); }
 }, 15000);
