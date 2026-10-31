@@ -1,3 +1,4 @@
+import { bootReport, formatBootReport } from './commands/boot-report';
 import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -36,6 +37,16 @@ export function buildProgram(): Command {
     .name('tkf')
     .description('token-forge — 내 AWS 계정 안의 프라이빗 바이브 코딩 LLM')
     .version(pkg.version);
+
+  program.command('boot-report').description('저장한 부팅 이벤트의 로컬 시간·근사 비용 보고')
+    .requiredOption('--file <path>', '호스트 JSONL 또는 CloudWatch filter-log-events JSON')
+    .option('--hourly-price <usd>', '명시적 시간당 USD 단가')
+    .option('--launch-time <iso>', '한 boot ID의 EC2 LaunchTime (시간대 포함)')
+    .option('--json', '구조화된 보고서')
+    .action((o: { file: string; hourlyPrice?: string; launchTime?: string; json?: boolean }) => {
+      const report = bootReport(fs.readFileSync(o.file, 'utf8'), o);
+      console.log(o.json ? JSON.stringify(report, null, 2) : formatBootReport(report));
+    });
 
   const model = program.command('model').description('모델 카탈로그');
   model.command('list').description('사용 가능한 모델·프로파일 나열').action(() => {

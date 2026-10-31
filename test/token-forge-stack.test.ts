@@ -53,6 +53,18 @@ describe('network', () => {
 describe('storage and security', () => {
   const template = makeTemplate();
 
+  test('root gp3 provides 500 MiB/s without increasing baseline IOPS', () => {
+    template.hasResourceProperties('AWS::EC2::LaunchTemplate', {
+      LaunchTemplateData: Match.objectLike({
+        BlockDeviceMappings: [{
+          DeviceName: '/dev/sda1',
+          Ebs: { VolumeSize: 200, VolumeType: 'gp3', Iops: 3000,
+            Throughput: 500, DeleteOnTermination: true },
+        }],
+      }),
+    });
+  });
+
   test('weights bucket is retained on stack delete', () => {
     template.hasResource('AWS::S3::Bucket', {
       DeletionPolicy: 'Retain',
@@ -149,7 +161,7 @@ describe('compute', () => {
     const lts = template.findResources('AWS::EC2::LaunchTemplate');
     const userData = JSON.stringify(Object.values(lts)[0]);
     const PLACEHOLDERS = [
-      '__REGION__', '__API_KEY_SECRET_ARN__', '__WEIGHTS_BUCKET__',
+      '__BOOT_LOG_GROUP__', '__REGION__', '__API_KEY_SECRET_ARN__', '__WEIGHTS_BUCKET__',
       '__WEIGHTS_REPO__', '__VLLM_IMAGE__', '__VLLM_FLAGS__', '__MAX_MODEL_LEN__',
     ];
     for (const ph of PLACEHOLDERS) {
@@ -461,5 +473,41 @@ describe('DeploymentSettings 출력 (#43 — 정책 갱신 시 보안·운영 �
     const t = makeTemplateWithContext(new cdk.App({ context: {
       allowedCidrs: '203.0.113.7, 198.51.100.0/24', azs: 'dummy1a', alertEmail: 'ops@example.com' } }));
     expect(settings(t)).toEqual({ v: 1, allowedCidrs: '203.0.113.7/32,198.51.100.0/24', azs: 'dummy1a', alertEmail: 'ops@example.com' });
+  });
+});
+
+describe('boot observability', () => {
+  test('스택별 로그 그룹은 7일 보존하며 출력한다', () => {
+    const t = makeTemplate();
+    t.hasResourceProperties('AWS::Logs::LogGroup', { LogGroupName: '/token-forge/Test/boot', RetentionInDays: 7 });
+    t.hasOutput('BootLogGroupName', { Value: Match.anyValue() });
+    // 기존 쓰기 정책을 재사용: 새 정책에서 권한/리소스를 넓히지 않는다.
+    const policies = JSON.stringify(t.findResources('AWS::IAM::Policy'));
+    expect(policies).not.toContain('logs:*');
+  });
+
+  test('모든 모델 프로파일 rendered user-data가 16KiB 이내', () => {
+    const fs = require('fs') as typeof import('fs');
+    const yaml = require('js-yaml') as typeof import('js-yaml');
+    const dir = path.join(__dirname, '../models');
+    const sizes: Record<string, number> = {};
+    for (const file of fs.readdirSync(dir).filter(x => x.endsWith('.yaml'))) {
+      const model = file.slice(0, -5);
+      const doc = yaml.load(fs.readFileSync(path.join(dir, file), 'utf8')) as { profiles: Record<string, unknown> };
+      for (const profile of Object.keys(doc.profiles)) {
+        const app = new cdk.App();
+        const stack = new TokenForgeStack(app, 'SizeCheck', { resolvedProfile: loadModelProfile(dir, model, profile),
+          env: { account: '111111111111', region: 'us-east-2' } });
+        const template = Template.fromStack(stack);
+        const lt = Object.values(template.findResources('AWS::EC2::LaunchTemplate'))[0];
+        const raw = lt.Properties.LaunchTemplateData.UserData['Fn::Base64'];
+        // CFN Ref/GetAtt 문자열은 최대 256바이트로 보수적으로 대체한다.
+        const rendered = typeof raw === 'string' ? raw : raw['Fn::Join'][1].map((x: unknown) => typeof x === 'string' ? x : 'x'.repeat(256)).join('');
+        sizes[`${model}/${profile}`] = Buffer.byteLength(rendered);
+        expect(rendered).not.toMatch(/__[A-Z_]+__/);
+        expect(Buffer.byteLength(rendered)).toBeLessThanOrEqual(16384);
+      }
+    }
+    console.log('rendered user-data bytes', JSON.stringify(sizes));
   });
 });

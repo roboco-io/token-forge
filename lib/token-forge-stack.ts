@@ -8,6 +8,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwactions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as events from 'aws-cdk-lib/aws-events';
@@ -131,8 +132,16 @@ export class TokenForgeStack extends cdk.Stack {
       { os: ec2.OperatingSystemType.LINUX },
     );
 
+    // 기존 /token-forge/* 로그 쓰기 권한을 재사용하며 새 IAM 범위를 넓히지 않는다.
+    const bootLogGroup = new logs.LogGroup(this, 'BootLogGroup', {
+      logGroupName: `/token-forge/${this.stackName}/boot`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    new cdk.CfnOutput(this, 'BootLogGroupName', { value: bootLogGroup.logGroupName });
     const bootScript = fs
       .readFileSync(path.join(__dirname, '..', 'assets', 'user-data', 'boot.sh'), 'utf8')
+      .replace(/__BOOT_LOG_GROUP__/g, bootLogGroup.logGroupName)
       .replace(/__REGION__/g, this.region)
       .replace(/__API_KEY_SECRET_ARN__/g, apiKeySecret.secretArn)
       .replace(/__WEIGHTS_BUCKET__/g, weightsBucket.bucketName)
@@ -159,6 +168,10 @@ export class TokenForgeStack extends cdk.Stack {
         deviceName: '/dev/sda1',
         volume: ec2.BlockDeviceVolume.ebs(200, {
           volumeType: ec2.EbsDeviceVolumeType.GP3,
+          // Image preparation saturated the 125 MiB/s baseline; IOPS remain unchanged.
+          throughput: 500,
+          iops: 3000,
+          deleteOnTermination: true,
         }),
       }],
     });

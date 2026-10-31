@@ -6,7 +6,7 @@ const scriptPath = path.join(__dirname, '..', 'assets', 'user-data', 'boot.sh');
 
 describe('boot.sh', () => {
   const PLACEHOLDERS = [
-    '__REGION__', '__API_KEY_SECRET_ARN__', '__WEIGHTS_BUCKET__',
+    '__BOOT_LOG_GROUP__', '__REGION__', '__API_KEY_SECRET_ARN__', '__WEIGHTS_BUCKET__',
     '__WEIGHTS_REPO__', '__VLLM_IMAGE__', '__VLLM_FLAGS__', '__MAX_MODEL_LEN__',
   ];
 
