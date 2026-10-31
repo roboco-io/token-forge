@@ -151,7 +151,7 @@ tkf config set standby single               # スタンバイポリシー: race(
 フィードが対象タイプをカバーしていない場合はリアルタイムのプレイスメントスコアに自動
 フォールバックする。
 
-初回の`up`は事前シーディングを含めて約20分、以降はキャッシュブートで約8分(スポットが
+初回の`up`は事前シーディングを含めて約20分、以降はキャッシュブートで約8分（並列化前の参考値）(スポットが
 即座に割り当てられる場合)。プライバシーモードでは`tkf config set feedUrl
 <自前収集器のURL>`により、フィードの参照すら自分のアカウント内で完結させられる。
 
@@ -209,7 +209,7 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`。
 |---|---|
 | 30分以上InServiceが0のまま(SNSアラーム) | スポットクォータ/キャパシティ不足。Service Quotas・公開ダッシュボードで別リージョンを検討 |
 | g6eでvLLMがCUDAグラフキャプチャ中にクラッシュ | INT4 MoE + TP=8では`--enable-expert-parallel`が必須(`int4-g6e`プロファイルに含まれている) |
-| インスタンスが繰り返し置き換わる | SSMセッションで接続 → `cat /var/log/token-forge-boot.log`、`docker logs vllm`(OOMなど)を確認。vLLMコンテナのログはCloudWatch Logsのロググループ`/token-forge/vllm`でも確認可能(インスタンス終了後も保存される) |
+| インスタンスが繰り返し置き換わる | SSMセッションで接続 → `cat /var/log/token-forge/events.jsonl`、`docker logs vllm`(OOMなど)を確認。vLLMコンテナのログはCloudWatch Logsのロググループ`/token-forge/vllm`でも確認可能(インスタンス終了後も保存される) |
 | スポット中断通知を受信 | 正常 — ASGが自動的に再プロビジョニングする。S3キャッシュから約15分以内に復旧 |
 | HFダウンロードが3回失敗 | ログを確認した上でインスタンスを終了(ASGが置き換え)するか、ネットワークを点検 |
 
@@ -219,7 +219,7 @@ GPU料金はプロンプトを入力した時間ではなく、インスタン�
 
 > GPUコスト = 時間あたりスポット単価 × (推論時間 + 起動時間 + アイドル稼働時間)
 
-起動時間(S3キャッシュから約8分)と自動停止までのアイドル時間も、推論と同じ単価で課金される。
+起動時間(S3キャッシュから約8分（並列化前の参考値）)と自動停止までのアイドル時間も、推論と同じ単価で課金される。
 ALB、S3、EBS、Secrets Manager、CloudWatchの料金は別途かかる。`tkf down`はASGを0に設定し、インスタンスの終了には通常数分かかる(`tkf status`で
 確認)。GPUの課金はコマンドが終わった時点ではなく、インスタンスが終了した時点で止まる。その後も
 ALB(リージョンあたり約$16/月)、S3の重みキャッシュ、シークレットは`tkf down --purge`まで残る。
@@ -338,3 +338,48 @@ CDKを直接使う場合は
 
 自分で運用したくない場合(マネージド形態に興味がある場合)は、ぜひissueで意見を残してほしい。
 実際のユースケースがロードマップを決める。
+
+### 起動イベントと再現可能な比較
+
+DockerイメージとS3/HF重みの準備を並列化し、ローカルイメージを再利用する。両方の成功後に
+コンテナを起動し、ローカル`/health`を有限時間で確認する。従来の約8分は変更前の参考値であり、
+変更後の実測ではない。初回(HF取得+S3シード)、S3キャッシュhit、ローカルイメージhitを分ける。
+実GPUでの短縮率や節約率はまだ測定していない。
+
+既存のSSM接続から`/var/log/token-forge/events.jsonl`をローカルにコピーするか、スタック出力
+`BootLogGroupName`のロググループ(7日保存)を読み取りでエクスポートする。
+
+```bash
+GROUP=$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`BootLogGroupName`].OutputValue' --output text)
+aws logs filter-log-events --log-group-name "$GROUP" --region "$REGION" --output json > events.json
+tkf boot-report --file events.json
+tkf boot-report --file one-boot.jsonl --hourly-price 1.20 --launch-time 2026-10-31T00:00:00Z --json
+```
+
+費用を出す場合はファイルを単一boot IDに限定し、そのインスタンスのEC2 `LaunchTime`を使う。
+単価と日時は例であり置き換える。明示した単価と有効なlaunch anchorの両方が必要となる。
+ホスト開始→ローカルREADYは部分観測で、launch→READYの固定単価計算も請求書ではない。
+CLI全体の待機には準備・シード・スポット確保・エンドポイント観測遅延が含まれる。
+serving・idle tail・終了伝播・セッション全体の費用配分は対象外。欠落/失敗を$0とせず、並列段階の時間は足さない。
+
+別途承認したGPU A/B実験では、同じrendered user-data、モデル/イメージdigest、インスタンスタイプ、
+リージョン、キャッシュ条件でホスト環境の`TKF_BOOT_MODE=serial`と`TKF_BOOT_MODE=parallel`(既定値)を比較する。
+新しいCDK contextはない。隔離した実験ホストの再実行例は
+`sudo env TKF_BOOT_MODE=serial bash /var/lib/cloud/instance/user-data.txt`で、parallelでも繰り返す。
+稼働中のGPUを使いvLLMを再起動する。再実行でキャッシュが温まるため、新規ホストと同じ条件ではない。
+各条件を複数回測り、初回/S3/ローカルイメージ別に中央値・範囲・失敗・ホスト区間・launch anchorを記録する。
+同時転送はディスクやネットワークで競合し得る。既存のコストガードに従い実験後は速やかにGPUを停止する。
+
+バッチ送信は有限のbest effortで、失敗やHTTP 200の部分拒否はホストのuploadイベントに記録し、推論開始を妨げない。
+直後の終了やホスト喪失では最終イベントが失われる可能性がある。リモートの失敗イベントがないだけでは送信成功を
+証明できない。[アーキテクチャ](docs/architecture.md)にスキーマと上限を記載した。
+以前の隔離GPU実測と制約は下記の報告書に記録した。請求額は未検証で、最終ソース変更はローカル回帰テストのみで検証した。
+
+送信状態は独立した連番のホスト専用telemetryで、再送信しない。ローカル書き込み失敗時は
+stderrに`TKF_LOCAL_LOG_WRITE_FAILED`を出し、起動とリモート送信を継続するが、ホスト原本が欠ける場合がある。
+SIGINT/SIGTERMは準備プロセスグループを終了する。supervisorのSIGKILL/OOMでは子孫の終了や最終記録を保証できない。
+
+ルートディスクの既定値はgp3 200 GiB、3,000 IOPS、スループット500 MiB/s。Ohioでは追加375 MiB/sに常時確保するボリュームで約$15/月（$0.04/MiB/s-month）がかかり、一時ボリュームは使用時間に比例する。既存スタックには明示的な`cdk deploy`が必要で、実行中のインスタンスのディスクは自動変更されない。起動短縮は保証されず、実測で確認する必要がある。 [Ohioでの1回の実測と制約](docs/superpowers/plans/2026-10-31-boot-throughput.md)を参照。
+
+採用した起動経路は、リージョン別SSM GPU DLAMI、イメージと重みの並列準備、上記ルート設定である。Ohio 2cのg6e.12xlarge Spotで、Qwen3-Coder-30B FP8、vLLM 0.27.1、TP4/EP/131072、S3の重みキャッシュhit・イメージpullという条件で、launch→ローカルREADY **288.210秒**を1回観測した。以前の125 MiB/s実行は477.441秒で、並列化だけのserialとの差は6.186秒だった。異なる時点の単一実行であり、一般的な短縮を保証しない。AOT cacheの再利用を確認したprepared AMIは617.075秒と遅く、製品の起動経路から除外した。現在のソースにはAPIキー引数と引数ログの修正も含む。これらはローカル回帰テストで検証し、新たなlive測定はしていない。[実験結果と制約](docs/superpowers/plans/2026-10-31-prebootstrap.md)を参照。

@@ -163,7 +163,7 @@ capacity simultaneously across the top K regions and keeps only whichever region
 capacity first (First-Acquired-Wins). If the feed doesn't cover the target instance type, it
 falls back automatically to real-time placement scoring.
 
-The first `up` takes about 20 minutes including pre-seeding; subsequent runs boot from
+Historical reference (before boot parallelization): the first `up` took about 20 minutes including pre-seeding; subsequent runs boot from
 cache in about 8 minutes (assuming spot capacity is granted immediately). In privacy mode,
 `tkf config set feedUrl <your-collector-URL>` lets you resolve even feed lookups entirely
 within your own account.
@@ -224,7 +224,7 @@ See `models/solar-open2-250b.yaml` for the schema (`vllmImage`,
 |---|---|
 | InService stays at 0 for more than 30 minutes (SNS alarm) | Spot quota or capacity shortage. Check Service Quotas and the public dashboard, and consider a different region |
 | vLLM crashes during CUDA graph capture on g6e | INT4 MoE with TP=8 requires `--enable-expert-parallel` (already included in the `int4-g6e` profile) |
-| Instance keeps getting replaced | Connect via SSM Session Manager and check `cat /var/log/token-forge-boot.log` and `docker logs vllm` (e.g., for OOM). vLLM container logs are also available in the CloudWatch Logs group `/token-forge/vllm` (retained even after the instance terminates) |
+| Instance keeps getting replaced | Connect via SSM Session Manager and check `cat /var/log/token-forge/events.jsonl` and `docker logs vllm` (e.g., for OOM). vLLM container logs are also available in the CloudWatch Logs group `/token-forge/vllm` (retained even after the instance terminates) |
 | Received a spot interruption notice | Normal — the ASG reprovisions automatically. Recovers from the S3 cache in about 15 minutes |
 | HF download failed 3 times | Check the logs, then either terminate the instance (triggering an ASG replacement) or investigate network issues |
 
@@ -234,7 +234,7 @@ GPU charges follow the time an instance is running, not the time you spend typin
 
 > GPU cost = hourly spot price × (inference time + boot time + idle running time)
 
-Boot time (about 8 minutes from the S3 cache) and the idle time before an automatic stop are
+Boot time (historically about 8 minutes from the S3 cache; not a post-change measurement) and the idle time before an automatic stop are
 billed at the same hourly rate as inference. ALB, S3, EBS, Secrets Manager, and CloudWatch are
 billed separately. `tkf down` sets the ASG to 0 and the instance then terminates, which usually
 takes a few minutes (check with `tkf status`); GPU billing ends when the instance terminates, not
@@ -368,3 +368,51 @@ cheaply on spot instances, while still being reliable**. The
 
 If you'd rather not operate this yourself and would be interested in a managed offering,
 please leave your thoughts as an issue. Real use cases will shape the roadmap.
+
+### Boot events and reproducible comparison
+
+Image preparation and S3/HF weights now overlap; a local image is reused. Both must succeed before
+container launch, followed by bounded local `/health` polling. Previous ~8-minute cache figures are
+historical references, not measurements of this change. First boot (HF + S3 seed), S3 cache hit,
+and local image hit are different cases. No GPU speedup or savings percentage has been measured.
+
+Copy `/var/log/token-forge/events.jsonl` from the host via your existing SSM access, or export the
+stack's boot log group (7-day retention, `BootLogGroupName` output). Commands below only read logs:
+
+```bash
+GROUP=$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`BootLogGroupName`].OutputValue' --output text)
+aws logs filter-log-events --log-group-name "$GROUP" --region "$REGION" --output json > events.json
+tkf boot-report --file events.json
+tkf boot-report --file one-boot.jsonl --hourly-price 1.20 --launch-time 2026-10-31T00:00:00Z --json
+```
+
+For cost, first restrict the file to one boot ID and use that instance's EC2 `LaunchTime`; the example
+price and date are placeholders. Without both an explicit price and valid launch anchor, no cost is
+calculated. Host start→local READY is a partial interval. Launch→READY at a fixed rate is an estimate,
+not a bill. CLI wait also includes preparation, seeding, spot allocation and endpoint observation;
+serving, idle tail, shutdown propagation and total session allocation are outside this report.
+Missing/failed events are not reported as zero cost. Parallel phase durations are never summed.
+
+For a separately authorized GPU A/B experiment, use the same rendered user-data, model/image digest,
+instance type, region and cache state. Run `TKF_BOOT_MODE=serial` versus `TKF_BOOT_MODE=parallel` in the
+host environment (default parallel; no CDK context). For a manual rerun on an isolated test host:
+`sudo env TKF_BOOT_MODE=serial bash /var/lib/cloud/instance/user-data.txt` (then repeat with parallel).
+This restarts vLLM and uses a running GPU. Compare several boot IDs per arm and separate first/S3/local
+image cases; reruns warm caches and are not equivalent to fresh instances. Record median/range,
+failures, host intervals and launch anchors separately. Concurrent transfers may contend for disk
+and network. Stop the experiment host promptly under the existing cost guard.
+
+Uploads are bounded, batched and best effort; failures/partial rejections appear as `upload` events
+on the host without blocking serving. Immediate termination or host loss can lose final events;
+absence of a remote failure event does not prove delivery. See [architecture](docs/architecture.md)
+for schema, limits and offline validation scope. The earlier isolated GPU measurements and their limits are documented below. Billing is not verified; the final source changes have only local regression validation.
+
+Upload status uses a separate host-only telemetry sequence; it is never uploaded recursively.
+Local log write failure emits `TKF_LOCAL_LOG_WRITE_FAILED` on stderr; startup and remote delivery continue,
+but the host recovery copy can be missing. SIGINT/SIGTERM clean up preparation process groups;
+SIGKILL/OOM of the supervisor cannot guarantee descendant cleanup or a final event.
+
+The root disk defaults to gp3 200 GiB, 3,000 IOPS, and 500 MiB/s throughput. In Ohio, the extra 375 MiB/s costs approximately $15/month for a continuously provisioned volume ($0.04/MiB/s-month); temporary volumes are prorated. Existing stacks require an explicit `cdk deploy`; this does not resize an already running instance. Boot-time improvement is not guaranteed and must be measured. [Ohio single-run measurement and limitations](docs/superpowers/plans/2026-10-31-boot-throughput.md).
+
+The selected boot path uses the regional SSM GPU DLAMI, parallel image/weights preparation, and the root settings above. One Ohio 2c g6e.12xlarge Spot run reached local READY in **288.210 seconds** with Qwen3-Coder-30B FP8, vLLM 0.27.1, TP4/EP/131072, S3-cached weights and an image pull. The earlier 125 MiB/s run took 477.441 seconds; parallel preparation alone differed from serial by only 6.186 seconds. These were single runs at different times, not a universal speed guarantee. A prepared AMI with verified AOT cache took 617.075 seconds and is excluded from the product boot path. The current source also includes API-key argument and argument-logging fixes validated by local regression tests, without another live benchmark. See the [experiment and limitations](docs/superpowers/plans/2026-10-31-prebootstrap.md).

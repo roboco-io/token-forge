@@ -140,7 +140,7 @@ RTT(24h 캐시), 스팟 가격, 계정 쿼터를 종합해 후보 리전을 서�
 → 가격), 상위 K개 리전에 동시에 스팟을 요청해 먼저 확보한 리전만 남긴다(First-Acquired-
 Wins). 피드가 대상 타입을 커버하지 않으면 실시간 배치점수로 자동 폴백한다.
 
-첫 `up`은 선시딩 포함 약 20분, 이후에는 캐시 부팅으로 약 8분(스팟 즉시 배정 기준).
+병렬화 이전의 과거 참고치: 첫 `up`은 선시딩 포함 약 20분, 이후에는 캐시 부팅으로 약 8분(스팟 즉시 배정 기준).
 프라이버시 모드는 `tkf config set feedUrl <자가 수집기 URL>`로 피드 조회조차 자기 계정
 안에서 해결할 수 있다.
 
@@ -196,7 +196,7 @@ OpenAI SDK: `base_url="<EndpointUrl>/v1"`, `api_key=${API_KEY}`.
 |---|---|
 | 30분 넘게 InService 0 (SNS 알람) | 스팟 쿼터/용량 부족. Service Quotas·공개 대시보드로 다른 리전 검토 |
 | g6e에서 vLLM이 CUDA 그래프 캡처 중 크래시 | INT4 MoE + TP=8은 `--enable-expert-parallel` 필수 (`int4-g6e` 프로파일에 포함됨) |
-| 인스턴스가 계속 교체됨 | SSM 세션 접속 → `cat /var/log/token-forge-boot.log`, `docker logs vllm` (OOM 등). vLLM 컨테이너 로그는 CloudWatch Logs 그룹 `/token-forge/vllm`에서도 확인 가능 (인스턴스 종료 후에도 보존) |
+| 인스턴스가 계속 교체됨 | SSM 세션 접속 → `cat /var/log/token-forge/events.jsonl`, `docker logs vllm` (OOM 등). vLLM 컨테이너 로그는 CloudWatch Logs 그룹 `/token-forge/vllm`에서도 확인 가능 (인스턴스 종료 후에도 보존) |
 | 스팟 중단 알림 수신 | 정상 — ASG가 자동 재프로비저닝. S3 캐시로 약 15분 내 복구 |
 | HF 다운로드 3회 실패 | 로그 확인 후 인스턴스 종료(ASG 교체) 또는 네트워크 점검 |
 
@@ -206,7 +206,7 @@ GPU 요금은 프롬프트를 입력한 시간이 아니라 인스턴스가 실�
 
 > GPU 비용 = 시간당 스팟 단가 × (추론 시간 + 부팅 시간 + 유휴 실행 시간)
 
-부팅 시간(S3 캐시 기준 약 8분)과 자동 정지 전까지의 유휴 시간도 추론과 같은 단가로 과금된다.
+부팅 시간(S3 캐시 과거 참고치 약 8분, 개선 후 실측 아님)과 자동 정지 전까지의 유휴 시간도 추론과 같은 단가로 과금된다.
 ALB, S3, EBS, Secrets Manager, CloudWatch 요금은 별도다. `tkf down`은 ASG를 0으로 설정하고, 인스턴스 종료에는 보통 몇 분이 걸린다(`tkf status`로
 확인). GPU 과금은 명령이 끝난 시점이 아니라 인스턴스가 종료된 시점에 멈춘다. 그 뒤에도
 ALB(리전당 약 $16/월), S3 가중치 캐시, 시크릿은 `tkf down --purge` 전까지 남는다. EBS 루트 볼륨은
@@ -319,3 +319,46 @@ CDK를 직접 쓸 때는 `-c usageMode=interactive|batch|online`을 쓴다.
 
 이런 운영을 직접 하고 싶지 않다면(매니지드 형태에 관심이 있다면) 이슈로 의견을 남겨 달라.
 사용 사례가 로드맵을 결정한다.
+
+### 부팅 계측과 재현 가능한 비교
+
+이미지 준비와 S3/HF 가중치 준비를 병렬 실행하고 로컬 이미지는 재사용한다. 두 작업 성공 뒤
+컨테이너를 시작하고 로컬 `/health`를 유한 대기한다. 기존 약 8분은 병렬화 전 과거 참고치다.
+첫 기동(HF 다운로드+시딩), S3 캐시 hit, 로컬 이미지 hit를 구분한다. 개선 후 실측 시간·절감률은 아직 없다.
+
+기존 SSM 접속으로 호스트 `/var/log/token-forge/events.jsonl`을 로컬에 복사하거나,
+스택 출력 `BootLogGroupName`의 로그 그룹(7일 보존)을 읽기 조회로 내보낸다.
+
+```bash
+GROUP=$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`BootLogGroupName`].OutputValue' --output text)
+aws logs filter-log-events --log-group-name "$GROUP" --region "$REGION" --output json > events.json
+tkf boot-report --file events.json
+tkf boot-report --file one-boot.jsonl --hourly-price 1.20 --launch-time 2026-10-31T00:00:00Z --json
+```
+
+비용 계산 전 파일을 한 boot ID로 제한하고 해당 인스턴스의 EC2 `LaunchTime`을 확인한다.
+예시 단가·시각은 교체해야 한다. 명시 단가와 유효 launch anchor가 모두 있어야 근사 비용을 낸다.
+호스트 시작→로컬 READY는 부분 관측이다. launch→READY의 고정 단가 계산도 청구서가 아니다.
+CLI 전체 대기에는 준비·시딩·스팟 확보·엔드포인트 관측 지연이 포함된다. serving·idle tail·종료 전파·전체
+세션 비용 배분은 측정하지 않는다. 누락/실패를 $0으로 표시하지 않으며 동시 단계 시간을 합산하지 않는다.
+
+별도 승인된 GPU A/B 실험에서는 동일 rendered user-data·모델/이미지 digest·인스턴스 타입·리전·캐시 상태로
+호스트 환경의 `TKF_BOOT_MODE=serial`과 `TKF_BOOT_MODE=parallel`(기본)을 비교한다. CDK context는 추가하지 않았다.
+격리된 실험 호스트에서 재실행하려면 `sudo env TKF_BOOT_MODE=serial bash /var/lib/cloud/instance/user-data.txt`를
+쓰고 parallel로 반복한다. 실행 중 GPU를 사용하며 vLLM을 재시작한다. 재실행은 캐시를 데우므로 신규 호스트와
+동일한 조건이 아니다. 각 조건을 여러 번 반복하고 첫 기동/S3/로컬 이미지 조건별 중앙값·범위·실패·호스트 구간·
+launch anchor를 분리 기록한다. 동시 다운로드는 디스크·네트워크 경합을 일으킬 수 있다. 기존 비용 가드에 따라
+실험 후 즉시 GPU를 정지한다.
+
+배치 전송은 유한한 best effort다. 실패와 HTTP 200 부분 거부는 호스트의 upload 이벤트에 남으며 추론 시작을
+막지 않는다. 즉시 종료/호스트 유실 시 마지막 이벤트가 유실될 수 있고, 원격 실패 이벤트 부재가 전송 성공의
+증거는 아니다. 스키마·상한은 [아키텍처](docs/architecture.md)를 참고한다. 이전 격리 GPU 실측과 한계는 아래 보고서에 기록했다. 실제 청구액은 검증하지 않았으며 최종 소스 변경은 로컬 회귀 검증만 했다.
+
+전송 상태는 독립 순번의 호스트 전용 telemetry이며 재전송하지 않는다. 로컬 파일 쓰기 실패는
+stderr에 `TKF_LOCAL_LOG_WRITE_FAILED`를 남기고 기동·원격 전송을 계속하지만 호스트 원본이 없을 수 있다.
+SIGINT/SIGTERM은 준비 프로세스 그룹을 정리한다. supervisor의 SIGKILL/OOM은 자손 정리나 최종 기록을 보장하지 않는다.
+
+루트 디스크 기본값은 gp3 200 GiB, 3,000 IOPS, 처리량 500 MiB/s다. Ohio에서 추가 375 MiB/s는 상시 볼륨 기준 약 $15/월($0.04/MiB/s-month)이며 임시 볼륨은 사용 시간에 비례한다. 기존 스택은 명시적 `cdk deploy`가 필요하고, 이미 실행 중인 인스턴스의 디스크를 자동 변경하지 않는다. 부팅 단축 효과는 보장되지 않으며 실측으로 확인해야 한다. [Ohio 1회 실측과 한계](docs/superpowers/plans/2026-10-31-boot-throughput.md)를 참고한다.
+
+선택한 부팅 경로는 리전별 SSM GPU DLAMI, 이미지·가중치 병렬 준비, 위 루트 설정이다. Ohio 2c g6e.12xlarge Spot에서 Qwen3-Coder-30B FP8, vLLM 0.27.1, TP4/EP/131072, S3 가중치 hit·이미지 pull 조건으로 launch→로컬 READY **288.210초**를 1회 관측했다. 이전 125 MiB/s 실행은 477.441초였고, 병렬화만의 serial 대비 차이는 6.186초였다. 서로 다른 시점의 단일 실행이므로 보편적 단축을 보장하지 않는다. AOT cache가 실제 재사용된 prepared AMI는 617.075초로 느려 제품 부팅 경로에서 제외했다. 현재 소스에는 API 키 인자 전달·인자 로그 수정도 포함되며, 이는 로컬 회귀 테스트로 검증했고 새 라이브 벤치마크는 하지 않았다. [실험 결과와 한계](docs/superpowers/plans/2026-10-31-prebootstrap.md)를 참고한다.

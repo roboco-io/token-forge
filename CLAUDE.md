@@ -41,7 +41,7 @@ npx ts-node scripts/verify-usage-mode-synth.ts   # 사용 모드 오프라인 �
 스택 이름은 CFN 제약에 맞게 정규화됨(점 → 대시).
 
 **boot.sh 플레이스홀더 계약** (가장 깨지기 쉬운 부분): `assets/user-data/boot.sh`의
-`__REGION__` 등 7개 토큰을 스택이 synth 시 `.replace()`로 치환해 user-data로 주입한다.
+`__REGION__` 등 8개 토큰(추가: `__BOOT_LOG_GROUP__`)을 스택이 synth 시 `.replace()`로 치환해 user-data로 주입한다.
 토큰을 추가/변경하면 세 곳을 동시에 수정해야 한다 — boot.sh, `lib/token-forge-stack.ts`의
 치환 체인, `test/boot-script.test.ts`·`test/token-forge-stack.test.ts`의 PLACEHOLDERS 목록.
 
@@ -81,3 +81,7 @@ solar-open2-250b는 Upstage 포크 vLLM 이미지 필수, `maxModelLen` 131072 �
   실패하면 여전히 먼저 삭제해 볼 것.
 - 스택 테스트는 `makeTemplate()` 헬퍼(solar int4 프로파일 기준)를 재사용하고, 컨텍스트가
   필요한 케이스만 별도 `cdk.App({ context })`로 만든다.
+
+**루트 디스크**: gp3 200 GiB / 3,000 IOPS / 500 MiB/s. 관측된 125 MiB/s 처리량 병목만 완화하며 IOPS·부팅 코드는 유지한다. Ohio 추가 처리량 375 MiB/s는 상시 약 $15/월, 임시 볼륨은 시간 비례다. 기존 스택은 명시적 `cdk deploy`와 이후 새 인스턴스 기동이 필요하다. 부팅 단축은 환경별 실측으로 확인하며 보장하지 않는다. [Ohio 실측과 한계](docs/superpowers/plans/2026-10-31-boot-throughput.md)를 참고한다.
+
+**실측 기반 선택**: 리전별 SSM GPU DLAMI + 이미지/가중치 병렬 준비 + 위 루트 설정을 유지한다. Ohio 2c g6e.12xlarge Spot에서 Qwen3-Coder-30B FP8, vLLM 0.27.1, TP4/EP/131072, S3 가중치 hit·이미지 pull 조건으로 launch→READY 288.210초를 1회 관측했다. prepared AMI+AOT cache는 617.075초로 느려 제품 경로에서 제외했다. 현재 소스의 API 키 전달·인자 로그 수정은 회귀 테스트로 검증했으며 새 라이브 측정은 하지 않았다. [실측 보고서](docs/superpowers/plans/2026-10-31-prebootstrap.md)를 참고한다.

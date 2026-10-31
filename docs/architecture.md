@@ -92,7 +92,7 @@ flowchart LR
     BIN --> YAML["models/qwen3-coder-30b.yaml"]
     YAML -- "loadModelProfile()" --> RP["ResolvedProfile<br/>weightsRepo · instanceType<br/>vllmFlags · maxModelLen · vllmImage"]
     RP --> STACK["TokenForgeStack"]
-    BOOT["assets/user-data/boot.sh<br/>(__REGION__ 등 7개 토큰)"] -- ".replace() 치환" --> STACK
+    BOOT["assets/user-data/boot.sh<br/>(__REGION__ 등 8개 토큰)"] -- ".replace() 치환" --> STACK
     STACK --> UD["EC2 user-data"]
 ```
 
@@ -129,7 +129,7 @@ sequenceDiagram
         CLI->>ASG: desired=0 강등 감지 시 1로 복구
     end
     ASG->>GPU: 스팟 확보 → 부팅
-    GPU->>S3: s5cmd로 가중치 로드 (캐시 부팅 약 8분)
+    GPU->>S3: 이미지 준비와 가중치 로드 병렬 실행 (과거 캐시 참고치 약 8분)
     GPU-->>CLI: 200/401 응답 → READY
     Note over CLI,ASG: 타임아웃 시 desired=0으로 되돌림 (비용 가드)
     Dev->>CLI: tkf connect claude
@@ -145,13 +145,17 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    START["인스턴스 부팅 (DLAMI)"] --> SEC["Secrets Manager에서 API 키 조회"]
-    SEC --> CHK{"S3에 가중치<br/>캐시 있음?"}
-    CHK -- "있음" --> LOAD["s5cmd로 고속 로드"]
-    CHK -- "없음" --> DL["HF 다운로드 후 S3 시딩<br/>(다운로드 시간만큼 GPU 과금 — 선시딩 권장)"]
-    DL --> LOAD
-    LOAD --> VLLM["vLLM 컨테이너 기동<br/>--served-model-name = weightsRepo<br/>--api-key = 시크릿"]
-    VLLM --> API["/v1/chat/completions (OpenAI)<br/>/v1/messages (Anthropic, thinking 지원)<br/>prefix caching 기본"]
+    START["호스트 감독 시작: boot ID + 단조 시계"] --> WEIGHTS["S3 complete 확인 → s5cmd / HF 3회 재시도 + 시딩"]
+    START --> IMAGE["로컬 이미지 재사용 / docker pull"]
+    WEIGHTS --> JOIN["두 준비 작업 성공 확인"]
+    IMAGE --> JOIN
+    JOIN --> SEC["Secrets Manager 키 조회"]
+    SEC --> RUN["docker run: restart always + 기존 awslogs"]
+    RUN --> HEALTH["로컬 /health 유한 대기"]
+    HEALTH --> READY["local READY 기록: ALB/CLI 관측과 구분"]
+    START -.-> LOG["호스트 JSONL + CloudWatch 배치 전송"]
+    READY -.-> LOG
+
 ```
 
 운영 교훈이 코드에 새겨진 곳들:
@@ -216,3 +220,54 @@ npx cdk synth -c model=solar-open2-250b -c profile=int4 --quiet   # 합성 확�
   있다 — 테스트가 설명 불가하게 실패하면 먼저 삭제.
 - 코드 변경은 브랜치 → PR → CodeSolar 리뷰 Green(오탐은 근거 반박)까지 대응 후 머지.
 - 커밋 메시지·문서는 한국어.
+
+## 부팅 계측 계약 (#45)
+
+`__BOOT_LOG_GROUP__`를 포함한 8개 placeholder를 CDK와 양쪽 PLACEHOLDERS 테스트에서 함께 관리한다.
+스택별 `/token-forge/<stack>/boot` 로그 그룹은 7일 보존, 스택 삭제 시 Retain이며 출력은
+`BootLogGroupName`이다. 기존 `/token-forge/*` 쓰기 IAM을 재사용한다. 새 CW Agent는 설치하지 않는다.
+Docker 로그 `/token-forge/vllm`와 구조화된 부팅 이벤트는 별개다.
+
+호스트 `/var/log/token-forge/events.jsonl`은 v1 JSONL이다. `boot_id`(실행별 UUID), `seq`,
+`timestamp_ms`(UTC epoch ms), `elapsed_ms`(감독 시작 기준 monotonic), `phase`, `status`,
+선택적 `duration_ms`/`cache`/정수 `exit_code`를 기록한다. 단계는 boot/weights/image/container/health/upload,
+상태는 start/complete/failed/cancelled/timeout/ready/cache다. 임의 명령 출력·인자·키·토큰·본문은 저장하지 않는다.
+`upload` 상태는 `stream: "telemetry"`와 독립 seq를 가진 호스트 전용 이벤트다. core 큐/순번에 포함하지 않는다.
+보고서는 core 순번 누락을 검사하고 telemetry는 전송 실패 집계에만 사용한다.
+실행마다 별도 boot ID를 만들며 호스트 파일은 append한다. 장기 생존 호스트는 운영자가 파일 회전 정책을 적용한다.
+
+준비 작업은 별도 프로세스 그룹으로 실행한다. 한쪽 실패나 SIGINT/SIGTERM 시 그룹 전체에 TERM/KILL을
+보내고 직접 자식을 기다린다. 그룹을 탈출한 프로세스와 Docker daemon 내부 다운로드 취소까지 보장하지 않는다.
+supervisor 자체의 SIGKILL/OOM은 finally를 실행하지 않으므로 자손 정리를 보장하지 않는다.
+`docker pull` 클라이언트를 종료해도 daemon 측 전송이 잠시 남을 수 있다.
+컨테이너 실행 이후 실패 시 컨테이너를 강제 정지하지 않으며 READY는 보고하지 않는다. 기존 CLI/유휴 비용 가드는 유지한다.
+전체 호스트 기동 상한은 1,800초, health 단계는 최대 1,200초이면서 전체 상한 이내다.
+CLI의 기본 전체 대기 30분에는 별도 준비/스팟 대기 등이 들어가므로 호스트보다 먼저 만료될 수 있다.
+
+전송 스레드는 약 5초마다 작은 배치를 timestamp로 정렬한다. 호출당 4초 상한, 배치당 최대 2회 시도,
+종료 시 18초 drain 기한이 지나면 새 호출을 금지하고 현재 전송 프로세스 그룹을 강제 종료한 뒤 스레드를 회수한다.
+남은 호출은 4초 timeout 이내이며 무한 재시도하지 않는다. sequenceToken은 사용하지 않는다. HTTP 200 부분 거부도 upload failed다.
+실패 배치는 무한 재시도하지 않으며 호스트 파일이 재수집 원본이다. 전송 상태는 호스트에만 기록하며 자기 자신을 재전송하지 않는다.
+CreateLogStream 재시도의 ResourceAlreadyExistsException만 기존 스트림 재사용으로 처리한다. READY를 먼저 기록하므로 전송이 추론 시작을
+막지 않는다. 즉시 종료·SIGKILL·호스트 유실 시 마지막 이벤트가 유실될 수 있다.
+
+`tkf boot-report --file`은 JSONL과 `aws logs filter-log-events` JSON을 로컬에서 처리한다.
+로컬 로그 쓰기 실패는 `TKF_LOCAL_LOG_WRITE_FAILED` 고정 진단을 stderr로 내고 메모리 큐/원격 전송/기동을 계속한다.
+이 경우 호스트 원본이 없을 수 있으며 원격 전송도 실패하면 stdout 외에 복구 가능한 기록이 없을 수 있다.
+
+순서가 뒤섞인 이벤트는 seq로 정렬하고 동일 중복은 제거한다. 충돌/누락/미지원/시간 이상은 완전성 문제로 표시한다.
+벽시계 역행 또는 단조 시계와 2ms(반올림 허용치) 초과 불일치가 있으면 비용을 산출하지 않는다.
+동시 단계 duration은 합산하지 않는다. `--json`에도 비용 가정과 제외 구간을 포함한다.
+단가와 단일 boot의 유효 EC2 LaunchTime이 모두 있을 때만 launch→local READY의 고정 단가 근사 비용을 계산한다.
+호스트 시작→READY는 부분 관측이며 실제 청구·serving·idle tail·종료 전파·전체 세션 비용 분석이 아니다.
+
+수집·보고·serial/parallel A-B 절차는 README의 부팅 계측 절을 따른다. 이전 격리 GPU 실측은 아래 보고서에 기록했다. 실제 청구액은 검증하지 않았다. 최종 소스 변경은 로컬 회귀 검증만 했으며 과거 약 8분은 현재 소스의 실측값이 아니다.
+
+근거: [PutLogEvents 배치·부분 거부](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html),
+[Docker pull 동시 전송](https://docs.docker.com/reference/cli/docker/image/pull/),
+[EC2 Instance launchTime](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Instance.html).
+
+루트 볼륨은 gp3 200 GiB / 3,000 IOPS / 500 MiB/s다. 이미지 준비 중 관측된 125 MiB/s 처리량 병목에 대한 최소 변경이다. Ohio 추가 처리량 375 MiB/s 비용은 상시 약 $15/월($0.04/MiB/s-month), 임시 볼륨은 시간 비례다. 기존 스택은 명시적 `cdk deploy` 후 새 인스턴스부터 적용된다. 단축 효과는 환경별 실측으로 확인하며 모델·컴파일·CUDA graph 설정은 변경하지 않는다. [Ohio 실측과 한계](superpowers/plans/2026-10-31-boot-throughput.md)를 참고한다.
+
+선택한 부팅 경로는 리전별 SSM GPU DLAMI, 이미지·가중치 병렬 준비, 위 루트 설정이다. Ohio 2c g6e.12xlarge Spot에서 Qwen3-Coder-30B FP8, vLLM 0.27.1, TP4/EP/131072, S3 가중치 hit·이미지 pull 조건으로 launch→로컬 READY **288.210초**를 1회 관측했다. 이전 125 MiB/s 실행은 477.441초였고, 병렬화만의 serial 대비 차이는 6.186초였다. 서로 다른 시점의 단일 실행이므로 보편적 단축을 보장하지 않는다. AOT cache가 실제 재사용된 prepared AMI는 617.075초로 느려 제품 부팅 경로에서 제외했다. 현재 소스에는 API 키 인자 전달·인자 로그 수정도 포함되며, 이는 로컬 회귀 테스트로 검증했고 새 라이브 벤치마크는 하지 않았다. [실험 결과와 한계](superpowers/plans/2026-10-31-prebootstrap.md)를 참고한다.
+일반 boot.sh는 실험용 cache helper를 조회하거나 archive를 가져오거나 vLLM cache를 bind mount하지 않는다. 실험 도구는 수동 재현용으로만 보존한다. API 키는 `--api-key=값`으로 전달하며 인자를 기록하는 logger만 WARNING으로 제한하고 compile INFO는 유지한다.
