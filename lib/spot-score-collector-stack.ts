@@ -40,6 +40,8 @@ export class SpotScoreCollectorStack extends cdk.Stack {
       handler: 'index.handler',
       // 대상당 2회(리전·AZ 단위) 순차 조회 — 대상이 늘어도 여유가 있도록 120초
       timeout: cdk.Duration.seconds(120),
+      // 기본 128MB에서 대상 11개 실행 시 121MB까지 사용(2026-11-18 실측) — 메모리 부족으로 수집이 끊기지 않게 여유를 둔다
+      memorySize: 256,
       environment: {
         TABLE_NAME: table.tableName,
         TARGETS: JSON.stringify(COLLECT_TARGETS.map(t => ({ id: t.id, types: t.instanceTypes }))),
@@ -72,7 +74,8 @@ exports.handler = async () => {
     for (const single of [false, true]) {
       calls += 1;
       try {
-        // 기본 응답은 상위 10건뿐이라 AZ 단위 조회에서 점수가 낮은 AZ가 빠진다 — 끝까지 페이지를 넘긴다
+        // NextToken이 오면 끝까지 읽는다. 단, 2026-11-18 실측으로는 MaxResults를 100으로 줘도 API가
+        // 점수 상위 10건만 돌려주고 NextToken을 주지 않는다 — AZ 단위 점수는 조회마다 상위 10개 AZ만 기록된다.
         let token;
         do {
           const out = await ec2.send(new GetSpotPlacementScoresCommand({

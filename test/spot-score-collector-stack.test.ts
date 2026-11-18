@@ -42,6 +42,7 @@ test('Lambda 런타임과 수집 파라미터 env 주입', () => {
   t.hasResourceProperties('AWS::Lambda::Function', {
     Runtime: 'nodejs22.x',
     Timeout: 120,
+    MemorySize: 256,
     Environment: {
       Variables: Match.objectLike({
         REGIONS: 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2',
@@ -86,7 +87,7 @@ test('validateTargets는 중복 id·중복 타입·3개 미만 묶음·# 포함 
   expect(() => validateTargets([{ ...base, family: 'gpu', instanceTypes: ['g1.a'] }])).not.toThrow();
 });
 
-test('수집기 Lambda는 묶음 타입으로 조회하고 응답 페이지를 끝까지 넘긴다', () => {
+test('수집기 Lambda는 묶음 타입으로 조회하고 NextToken이 오면 이어서 읽는다', () => {
   const fns = makeCollectorTemplate().findResources('AWS::Lambda::Function', { Properties: { Runtime: 'nodejs22.x' } });
   const code: string = Object.values(fns)[0].Properties.Code.ZipFile;
   expect(code).toContain('InstanceTypes: target.types');
