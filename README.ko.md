@@ -93,8 +93,9 @@ prefix caching이 기본이라 바이브 코딩의 반복 컨텍스트에 유리
 
 roboco가 상시 운영하는 **GPU 스팟 확보 가능성(배치점수) × 가격 공개 서비스**:
 
-- **대시보드**: https://spot.roboco.io — p5·g6e 주요 타입의 리전/AZ별
-  배치점수 추이, 스팟 가격, 요일×시간 히트맵, 가성비 랭킹 (1시간 주기 갱신, 90일 이력)
+- **대시보드**: https://spot.roboco.io — GPU(p5·g6e)와 범용 T·C·R 타입의 리전/AZ별
+  배치점수 추이, 스팟 가격, 요일×시간 히트맵, 타입×리전 비교표. 계열·CPU 아키텍처·리전·점수로
+  걸러 볼 수 있고 필터 상태가 URL에 남아 링크로 공유된다 (1시간 주기 갱신, 90일 이력)
 - **데이터 피드**: https://d16jdvzof4zpo7.cloudfront.net/data.json — CORS 전면 허용.
   스키마·이용법은 [docs/spot-feed.md](docs/spot-feed.md)
 

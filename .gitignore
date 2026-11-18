@@ -9,3 +9,4 @@ CLAUDE.local.md
 *.local.md
 .claude/settings.local.json
 .claude/hooks/
+.superlite/
