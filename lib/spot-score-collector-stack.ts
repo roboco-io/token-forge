@@ -10,8 +10,8 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import { COLLECT_TARGETS, validateTargets } from './spot-collector-targets';
 
-const INSTANCE_TYPES = 'p5.48xlarge,g6e.48xlarge,g6e.24xlarge,g6e.12xlarge';
 const REGIONS = 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2';
 // 대시보드 페이지 공개 주소 (GitHub Pages — .github/workflows/dashboard-pages.yml)
 const DASHBOARD_URL = 'https://spot.roboco.io';
@@ -19,11 +19,13 @@ const DASHBOARD_URL = 'https://spot.roboco.io';
 /**
  * 스팟 배치 점수 수집기 — 서빙 스택과 독립적으로 상시 가동되는 별도 스택.
  * 1시간마다 GetSpotPlacementScores(리전·AZ 단위)를 조회해 DynamoDB에 적재한다.
+ * 수집 대상은 lib/spot-collector-targets.ts의 COLLECT_TARGETS가 기준이다.
  * 설계: docs/superpowers/specs/2026-08-06-spot-score-collector-design.md
  */
 export class SpotScoreCollectorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+    validateTargets(COLLECT_TARGETS);
 
     const table = new dynamodb.Table(this, 'ScoresTable', {
       partitionKey: { name: 'scope', type: dynamodb.AttributeType.STRING },
@@ -36,10 +38,11 @@ export class SpotScoreCollectorStack extends cdk.Stack {
     const collectorFn = new lambda.Function(this, 'CollectorFn', {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
-      timeout: cdk.Duration.seconds(60),
+      // 대상당 2회(리전·AZ 단위) 순차 조회 — 대상이 늘어도 여유가 있도록 120초
+      timeout: cdk.Duration.seconds(120),
       environment: {
         TABLE_NAME: table.tableName,
-        INSTANCE_TYPES,
+        TARGETS: JSON.stringify(COLLECT_TARGETS.map(t => ({ id: t.id, types: t.instanceTypes }))),
         REGIONS,
         TTL_DAYS: '90',
       },
@@ -50,7 +53,7 @@ const ec2 = new EC2Client();
 const ddb = new DynamoDBClient();
 
 exports.handler = async () => {
-  const instanceTypes = process.env.INSTANCE_TYPES.split(',');
+  const targets = JSON.parse(process.env.TARGETS);
   const regions = process.env.REGIONS.split(',');
   const ttlDays = parseInt(process.env.TTL_DAYS || '90', 10);
   const now = new Date();
@@ -60,29 +63,38 @@ exports.handler = async () => {
   const items = [];
   let failures = 0;
   let calls = 0;
-  // 타입을 한 호출에 섞으면 "아무 타입이나" 기준의 합산 점수가 되므로 타입별로 분리 조회한다.
-  // scope 키에 타입을 접두해 (scope, ts) 충돌을 막는다.
-  for (const type of instanceTypes) {
+  // 대상(target)별로 분리 조회한다. GPU 대상은 타입 1개, 그 외는 같은 크기 3개 묶음이며
+  // 묶음의 점수는 "묶음 중 아무 타입이나" 기준이다 (lib/spot-collector-targets.ts 참고).
+  // scope 키에 대상 id를 접두해 (scope, ts) 충돌을 막는다.
+  for (const target of targets) {
+    const type = target.id;
     // single=false: 리전 단위 점수, single=true: AZ 단위 점수
     for (const single of [false, true]) {
       calls += 1;
       try {
-        const out = await ec2.send(new GetSpotPlacementScoresCommand({
-          InstanceTypes: [type],
-          TargetCapacity: 1,
-          RegionNames: regions,
-          SingleAvailabilityZone: single,
-        }));
-        for (const s of out.SpotPlacementScores ?? []) {
-          const scope = type + '#' + (single ? 'az#' + s.AvailabilityZoneId : 'region#' + s.Region);
-          items.push({ PutRequest: { Item: {
-            scope: { S: scope },
-            ts: { S: ts },
-            score: { N: String(s.Score) },
-            instanceType: { S: type },
-            expireAt: { N: String(expireAt) },
-          } } });
-        }
+        // 기본 응답은 상위 10건뿐이라 AZ 단위 조회에서 점수가 낮은 AZ가 빠진다 — 끝까지 페이지를 넘긴다
+        let token;
+        do {
+          const out = await ec2.send(new GetSpotPlacementScoresCommand({
+            InstanceTypes: target.types,
+            TargetCapacity: 1,
+            RegionNames: regions,
+            SingleAvailabilityZone: single,
+            MaxResults: 100,
+            NextToken: token,
+          }));
+          for (const s of out.SpotPlacementScores ?? []) {
+            const scope = type + '#' + (single ? 'az#' + s.AvailabilityZoneId : 'region#' + s.Region);
+            items.push({ PutRequest: { Item: {
+              scope: { S: scope },
+              ts: { S: ts },
+              score: { N: String(s.Score) },
+              instanceType: { S: type },
+              expireAt: { N: String(expireAt) },
+            } } });
+          }
+          token = out.NextToken;
+        } while (token);
       } catch (e) {
         failures += 1;
         console.error('GetSpotPlacementScores failed (type=' + type + ', single=' + single + '):', e);
@@ -146,6 +158,10 @@ exports.handler = async () => {
       defaultTtl: cdk.Duration.minutes(5), // 오리진 Cache-Control 없을 때(예: index.html 직접 업로드분)
       minTtl: cdk.Duration.seconds(0),
       maxTtl: cdk.Duration.hours(1),
+      // data.json은 수 MB의 JSON이라 압축 전송한다 (대상 4개일 때 1.57MB → gzip 약 0.11MB, 2026-11-18 실측).
+      // 캐시 정책에서 Accept-Encoding을 켜야 CloudFront가 압축본을 만들어 캐시한다.
+      enableAcceptEncodingGzip: true,
+      enableAcceptEncodingBrotli: true,
     });
     // 대시보드 페이지는 GitHub Pages(DASHBOARD_URL)로 이전 — 기존 CloudFront URL의 페이지 경로만
     // 301로 넘기고, data.json 등 나머지(구버전 CLI feedUrl 포함)는 그대로 S3에서 제공한다
@@ -180,13 +196,16 @@ function handler(event) {
     const publisherFn = new lambda.Function(this, 'PublisherFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'index.handler',
-      timeout: cdk.Duration.minutes(5),
-      memorySize: 512,
+      // 대상 수에 비례해 스캔할 점수 항목과 가격 기록이 늘어난다 — Lambda 상한(15분)과 1 GiB로 여유를 둔다
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 1024,
       code: lambda.Code.fromAsset(path.join(__dirname, '..', 'assets', 'dashboard-publisher')),
       environment: {
         TABLE_NAME: table.tableName,
         DASHBOARD_BUCKET: dashBucket.bucketName,
-        INSTANCE_TYPES,
+        TARGETS: JSON.stringify(COLLECT_TARGETS.map(t => ({
+          id: t.id, family: t.family, arch: t.arch, spec: t.spec, gpu: t.gpu, types: t.instanceTypes,
+        }))),
         REGIONS,
       },
     });
