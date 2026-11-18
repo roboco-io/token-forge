@@ -7,13 +7,13 @@
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-9G1SGM9SZQ');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spot Placement Score × Price Dashboard</title>
-<meta name="description" content="Hourly AWS spot placement scores and lowest spot prices for p5.48xlarge and g6e GPU instances across 5 regions.">
+<meta name="description" content="Hourly AWS spot placement scores and lowest spot prices for GPU (p5, g6e) and T, C, R instance types across 5 regions — filter by family, architecture and region.">
 <link rel="icon" type="image/svg+xml" href="roboco-logo.svg">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ROBOCO">
 <meta property="og:url" content="https://spot.roboco.io/">
 <meta property="og:title" content="Spot Placement Score × Price Dashboard">
-<meta property="og:description" content="Hourly AWS spot placement scores and lowest spot prices for p5.48xlarge and g6e GPU instances across 5 regions.">
+<meta property="og:description" content="Hourly AWS spot placement scores and lowest spot prices for GPU (p5, g6e) and T, C, R instance types across 5 regions — filter by family, architecture and region.">
 <meta property="og:image" content="https://spot.roboco.io/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -76,9 +76,45 @@
   .ranges button + button, .chips button + button, .langsw button + button { border-left: 1px solid var(--ring); }
   .ranges button[aria-pressed="true"], .chips button[aria-pressed="true"], .langsw button[aria-pressed="true"] { background: var(--btn-on); color: var(--btn-on-ink); }
   .ranges button:focus-visible, .chips button:focus-visible, .langsw button:focus-visible { outline: 2px solid var(--s-apne1); outline-offset: -2px; }
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; }
-  .legend .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 0.85rem; color: var(--ink-2); }
-  .legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .rangenote { font-size: 0.8rem; color: var(--muted); }
+  .filters { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 12px 14px;
+    margin: 12px 0 4px; display: grid; gap: 10px; }
+  .frow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .flab { font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 6px; }
+  .filters .chips { flex: 0 1 auto; flex-wrap: wrap; }
+  .chips button i { font-style: normal; font-weight: 400; opacity: 0.65; margin-left: 3px; }
+  .rchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rchips button { display: inline-flex; align-items: center; gap: 6px; font: 600 0.8rem/1 system-ui, sans-serif;
+    padding: 6px 10px; border: 1px solid var(--ring); border-radius: 999px; background: var(--surface);
+    color: var(--ink-2); cursor: pointer; }
+  .rchips .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .rchips button[aria-pressed="false"] { opacity: 0.5; text-decoration: line-through; }
+  .rchips button[aria-pressed="false"] .sw { background: var(--axis) !important; }
+  .filters input[type="search"], .filters select { font: 0.85rem/1.2 system-ui, sans-serif; padding: 6px 9px;
+    border: 1px solid var(--ring); border-radius: 8px; background: var(--page); color: var(--ink);
+    text-transform: none; letter-spacing: 0; }
+  .filters input[type="search"] { flex: 1 1 200px; min-width: 150px; max-width: 320px; }
+  .filters .reset { font: 600 0.8rem/1 system-ui, sans-serif; padding: 7px 12px; border: 1px solid var(--ring);
+    border-radius: 8px; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+  .filters .count { margin-left: auto; font-size: 0.83rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .filters button:focus-visible, .filters input:focus-visible, .filters select:focus-visible,
+  .mx .tbtn:focus-visible, button.tile:focus-visible { outline: 2px solid var(--s-apne1); outline-offset: 1px; }
+  .fam { display: inline-block; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.03em; padding: 1px 7px; margin-left: 7px;
+    border: 1px solid var(--ring); border-radius: 999px; color: var(--ink-2); vertical-align: middle; }
+  .mx th, .mx td { padding: 8px 12px; vertical-align: top; }
+  .mx tbody tr { cursor: pointer; }
+  .mx tbody tr:hover { background: var(--wash-good); }
+  .mx tbody tr.sel { background: var(--wash-good); box-shadow: inset 3px 0 0 var(--s-apne1); }
+  .mx .tbtn { font: 650 0.88rem/1.3 system-ui, sans-serif; background: none; border: none; padding: 0; color: var(--ink); cursor: pointer; }
+  .mx .mem { display: block; font-size: 0.74rem; color: var(--muted); margin-top: 2px; }
+  .mx .spec { color: var(--ink-2); }
+  .mx .sc { display: inline-block; min-width: 2.3em; text-align: center; padding: 2px 5px; border-radius: 5px; font-weight: 650; }
+  .mx .pr { display: block; font-size: 0.74rem; color: var(--ink-2); margin-top: 3px; }
+  .mx .np { color: var(--muted); font-size: 0.78rem; }
+  .mx th .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  button.tile { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  button.tile:hover { border-color: var(--axis); }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 14px 0 8px; }
   .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; }
   .tile .k { font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
@@ -102,15 +138,6 @@
   .tip .row b { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
   .tip .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
   .tblwrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; }
-  .ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
-  .ranks .cap { font-size: 0.85rem; font-weight: 650; padding: 9px 14px 0; }
-  .ranks table { table-layout: fixed; }
-  .ranks th, .ranks td { padding: 7px 6px; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
-  .ranks th:first-child, .ranks td:first-child { padding-left: 12px; }
-  .ranks th:last-child, .ranks td:last-child { padding-right: 12px; }
-  .ranks td .sw { margin-right: 5px; }
-  .ranks col.c-idx { width: 8%; } .ranks col.c-region { width: 32%; }
-  .ranks col.c-avg { width: 20%; } .ranks col.c-score { width: 18%; } .ranks col.c-price { width: 22%; }
   table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
   th, td { text-align: left; padding: 7px 14px; white-space: nowrap; }
   thead th { color: var(--muted); font-weight: 600; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase;
@@ -159,14 +186,15 @@
     </div>
     <div class="toolbar">
       <div class="ranges" id="ranges" role="group"></div>
-      <div class="legend" id="legend"></div>
+      <span class="rangenote" id="rangeNote"></span>
     </div>
   </header>
+  <div class="filters" id="filters"></div>
   <div class="tiles" id="tiles"></div>
   <h2 class="top" id="topHeading"></h2>
-  <div class="ranks" id="ranking"></div>
-  <div class="explain" id="explain"></div>
+  <div id="ranking"></div>
   <div id="sections"></div>
+  <div class="explain" id="explain"></div>
   <p class="fine" id="fine"></p>
 </div>
 
@@ -195,18 +223,34 @@ const I18N = {
       'g6e.48xlarge': '8×L40S · int4-g6e profile',
       'g6e.24xlarge': '4×L40S · GlobalPruned INT4 candidate · collected since 8/7',
     },
-    topHeading: 'Regional acquisition stability',
-    topHeadingSpan: '— based on 48h average placement score · P and G types compared separately (different use cases) · price is for reference only',
-    rankHeaders: ['#', 'Region', '48h', 'Score', 'Price'],
+    topHeading: 'Instance types × regions',
+    topHeadingSpan: '— each cell shows the 48h average placement score and the latest lowest spot price ($/h) · select a row to see its charts below',
     noData: 'No data',
-    mostStable: type => `${type} most stable`,
-    avg48Line: (region, avg) => `${region} · 48h avg ${avg}`,
-    currentScoreLine: (score, price) => `Current score ${score} · $${price}/h`,
+    mostStable: fam => `${fam} · most stable`,
+    tileLine: (region, avg, price) => `${region} · 48h avg ${avg} · ${price}/h`,
+    rangeNote: 'Period applies to the charts of the selected type',
+    all: 'All',
+    filterFamily: 'Family',
+    filterArch: 'CPU',
+    filterRegion: 'Regions',
+    familyLabels: { gpu: 'GPU', t: 'T · burstable', c: 'C · compute', r: 'R · memory', other: 'Other' },
+    searchPlaceholder: 'Search type, e.g. g6e c7i',
+    minLabel: '48h avg score',
+    minAtLeast: n => `${n} or higher`,
+    sortLabel: 'Sort',
+    sorts: { avg: '48h avg score (high first)', score: 'Current score (high first)', price: 'Price (low first)', name: 'Catalog order' },
+    reset: 'Reset filters',
+    countLine: (n, total) => `${n} of ${total} shown`,
+    mxType: 'Type', mxSpec: 'Spec', mxBest: 'Best region',
+    noMatch: 'No instance type matches these filters. Loosen a filter or reset.',
+    noPoolShort: 'no spot pool',
+    cellTitle: (avg, score) => `48h avg ${avg} · current score ${score}`,
+    groupNote: members => ` · <b>Scored as a group: ${members}</b> — AWS always returns a low score when a request names fewer than three non-GPU types, so the collector asks for "any of these three". The price is the lowest among them.`,
     explain1Title: 'What is a Spot Instance?',
     explain1P: 'A purchase option that rents AWS’s <b>idle EC2 capacity at up to 90% off</b> the on-demand price. In exchange, AWS may reclaim that capacity, which can <b>terminate the instance after a 2-minute warning</b>, and under heavy demand the capacity may not be available to begin with.',
     explain1Li: [
       'Spot prices fluctuate constantly based on per-AZ supply and demand — even within the same region, prices differ by AZ.',
-      'Large GPU instances (p5/g6e 48xlarge) have limited supply, so <b>simply acquiring capacity is often difficult</b>.',
+      'Large GPU instances (p5/g6e 48xlarge) have limited supply, so <b>simply acquiring capacity is often difficult</b>; general-purpose T, C and R types usually score high.',
       'token-forge runs on 100% spot + capacity-optimized allocation + automatic re-acquisition on interruption (ASG).',
     ],
     explain2Title: 'What is a Spot Placement Score?',
@@ -214,7 +258,7 @@ const I18N = {
     explain2Li: [
       '<b>9-10</b> very high · <b>4-8</b> worth trying · <b>1-3</b> likely difficult to acquire.',
       'A probability signal, not a guarantee — a score of 9 can still fail, and a low score can still succeed.',
-      'Querying a single instance type tends to score lower → read it as a <b>trend and cross-region comparison rather than an absolute value</b>.',
+      'A single GPU type tends to score lower than a diversified request → read it as a <b>trend and cross-region comparison rather than an absolute value</b>. T, C and R are queried as groups of three same-size types.',
       'How to use it: launching (<code>-c azs=</code>) in the regions/AZs/hours with higher scores improves your odds of acquiring capacity.',
     ],
     footnote: 'Placement score ranges 1-10 (higher = better chance of acquisition). Score collection began 2026-08-06. Data older than 14 days is summarized in 6-hour buckets (score = max, price = min). Overlapping lines in the score chart use a small ±2px offset for readability. The heatmap shows the KST day-of-week × hour average score across the full collection period.',
@@ -249,30 +293,46 @@ const I18N = {
       'g6e.48xlarge': '8×L40S · int4-g6e 프로파일',
       'g6e.24xlarge': '4×L40S · GlobalPruned INT4 후보 · 8/7부터 수집',
     },
-    topHeading: '리전별 확보 안정성',
-    topHeadingSpan: '— 48시간 평균 배치점수 기준 · P/G는 용도가 달라 타입별 분리 비교 · 가격은 참고',
-    rankHeaders: ['#', '리전', '48h', '점수', '최저가'],
+    topHeading: '인스턴스 타입 × 리전',
+    topHeadingSpan: '— 각 칸은 48시간 평균 배치점수와 최신 최저 스팟가($/h) · 행을 선택하면 아래에 해당 타입의 차트가 표시됩니다',
     noData: '데이터 없음',
-    mostStable: type => `${type} 최안정`,
-    avg48Line: (region, avg) => `${region} · 48h 평균 ${avg}`,
-    currentScoreLine: (score, price) => `현재 점수 ${score} · $${price}/h`,
+    mostStable: fam => `${fam} · 최안정`,
+    tileLine: (region, avg, price) => `${region} · 48h 평균 ${avg} · ${price}/h`,
+    rangeNote: '기간은 선택한 타입의 차트에 적용됩니다',
+    all: '전체',
+    filterFamily: '계열',
+    filterArch: 'CPU',
+    filterRegion: '리전',
+    familyLabels: { gpu: 'GPU', t: 'T · 버스터블', c: 'C · 컴퓨팅', r: 'R · 메모리', other: '기타' },
+    searchPlaceholder: '타입 검색 (예: g6e c7i)',
+    minLabel: '48h 평균 점수',
+    minAtLeast: n => `${n} 이상`,
+    sortLabel: '정렬',
+    sorts: { avg: '48h 평균 점수 높은 순', score: '현재 점수 높은 순', price: '가격 낮은 순', name: '기본 순서' },
+    reset: '필터 초기화',
+    countLine: (n, total) => `${total}개 중 ${n}개 표시`,
+    mxType: '타입', mxSpec: '사양', mxBest: '최적 리전',
+    noMatch: '조건에 맞는 인스턴스 타입이 없습니다. 필터를 완화하거나 초기화하세요.',
+    noPoolShort: '스팟 풀 없음',
+    cellTitle: (avg, score) => `48h 평균 ${avg} · 현재 점수 ${score}`,
+    groupNote: members => ` · <b>묶음 조회: ${members}</b> — GPU가 아닌 타입은 3개 미만으로 조회하면 AWS가 항상 낮은 점수를 반환하므로, 수집기가 "이 3개 중 아무 타입"으로 조회합니다. 가격은 3개 중 최저가입니다.`,
     explain1Title: '스팟 인스턴스란?',
     explain1P: 'AWS의 <b>유휴 EC2 용량을 온디맨드 대비 최대 90% 할인</b>된 시세로 빌리는 구매 방식입니다. 대신 AWS가 용량을 회수해야 하면 <b>2분 전 통지 후 인스턴스가 중단</b>될 수 있고, 수요가 몰리면 애초에 확보 자체가 안 되기도 합니다.',
     explain1Li: [
       '스팟 시세는 AZ 단위 수급에 따라 수시로 변동 — 같은 리전이라도 AZ별 가격이 다릅니다.',
-      'GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다.',
+      'GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다. 범용 T·C·R 타입은 대체로 점수가 높습니다.',
       'token-forge는 100% 스팟 + capacity-optimized 배분 + 중단 시 자동 재확보(ASG)로 운영합니다.',
     ],
     explain2Title: '배치점수(Spot Placement Score)란?',
-    explain2P: 'AWS가 <b>"이 스팟 요청이 향후 몇 시간 내 성공할 가능성"</b>을 1~10으로 알려주는 공식 선행 지표입니다 (<code>GetSpotPlacementScores</code> API). 리전 단위와 AZ 단위로 각각 조회할 수 있고, 이 대시보드는 수집기가 <b>1시간마다 기록한 값</b>입니다.',
+    explain2P: 'AWS가 <b>"이 스팟 요청이 향후 몇 시간 내 성공할 가능성"</b>을 1-10으로 알려주는 공식 선행 지표입니다 (<code>GetSpotPlacementScores</code> API). 리전 단위와 AZ 단위로 각각 조회할 수 있고, 이 대시보드는 수집기가 <b>1시간마다 기록한 값</b>입니다.',
     explain2Li: [
-      '<b>9~10</b> 매우 높음 · <b>4~8</b> 시도할 만함 · <b>1~3</b> 확보 난항 예상.',
+      '<b>9-10</b> 매우 높음 · <b>4-8</b> 시도할 만함 · <b>1-3</b> 확보 난항 예상.',
       '보장이 아닌 확률 신호 — 점수 9여도 실패할 수 있고, 반대도 가능합니다.',
-      '단일 인스턴스 타입으로 조회하면 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다.',
+      'GPU 타입 하나만 조회하면 여러 타입을 함께 조회할 때보다 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다. T·C·R은 같은 크기의 타입 3개를 묶어 조회합니다.',
       '활용법: 점수가 높은 리전·AZ·시간대를 골라 기동(<code>-c azs=</code>)하면 확보 확률이 올라갑니다.',
     ],
-    footnote: '배치점수는 1~10 (높을수록 확보 가능성↑). 점수 수집은 2026-08-06 시작. 14일 이전 데이터는 6시간 버킷(점수=최대, 가격=최소)으로 요약 저장. 점수 차트의 겹치는 선은 판별용 ±2px 미세 오프셋 적용. 히트맵은 전체 수집 기간의 KST 요일×시간대 평균 점수.',
-    chartScoreTitle: '배치점수 (1~10)',
+    footnote: '배치점수는 1-10 (높을수록 확보 가능성↑). 점수 수집은 2026-08-06 시작. 14일 이전 데이터는 6시간 버킷(점수=최대, 가격=최소)으로 요약 저장. 점수 차트의 겹치는 선은 판별용 ±2px 미세 오프셋 적용. 히트맵은 전체 수집 기간의 KST 요일×시간대 평균 점수.',
+    chartScoreTitle: '배치점수 (1-10)',
     chartPriceTitle: '스팟 최저가 ($/h, 리전 내 최저 AZ)',
     azChartTitleFor: region => `AZ별 배치점수 — ${region} <span class="span">기간 필터 적용</span>`,
     hmChartTitleFor: region => `요일×시간 히트맵 (KST) — ${region} <span class="span">전체 기간 평균 점수</span>`,
@@ -303,18 +363,34 @@ const I18N = {
       'g6e.48xlarge': '8×L40S · int4-g6eプロファイル',
       'g6e.24xlarge': '4×L40S · GlobalPruned INT4候補 · 8/7から収集',
     },
-    topHeading: 'リージョン別 確保安定性',
-    topHeadingSpan: '— 48時間平均配置スコア基準 · P/Gは用途が異なるためタイプ別に比較 · 価格は参考値',
-    rankHeaders: ['#', 'リージョン', '48h', 'スコア', '価格'],
+    topHeading: 'インスタンスタイプ × リージョン',
+    topHeadingSpan: '— 各セルは48時間平均配置スコアと最新のスポット最安値($/h) · 行を選択すると下にそのタイプのチャートを表示します',
     noData: 'データなし',
-    mostStable: type => `${type} 最安定`,
-    avg48Line: (region, avg) => `${region} · 48h平均 ${avg}`,
-    currentScoreLine: (score, price) => `現在スコア ${score} · $${price}/h`,
+    mostStable: fam => `${fam} · 最安定`,
+    tileLine: (region, avg, price) => `${region} · 48h平均 ${avg} · ${price}/h`,
+    rangeNote: '期間は選択したタイプのチャートに適用されます',
+    all: 'すべて',
+    filterFamily: 'ファミリー',
+    filterArch: 'CPU',
+    filterRegion: 'リージョン',
+    familyLabels: { gpu: 'GPU', t: 'T · バースト可能', c: 'C · コンピューティング', r: 'R · メモリ', other: 'その他' },
+    searchPlaceholder: 'タイプ検索 (例: g6e c7i)',
+    minLabel: '48h平均スコア',
+    minAtLeast: n => `${n}以上`,
+    sortLabel: '並び替え',
+    sorts: { avg: '48h平均スコアが高い順', score: '現在スコアが高い順', price: '価格が安い順', name: '既定の順序' },
+    reset: 'フィルタをリセット',
+    countLine: (n, total) => `${total}件中${n}件を表示`,
+    mxType: 'タイプ', mxSpec: 'スペック', mxBest: '最適リージョン',
+    noMatch: '条件に一致するインスタンスタイプがありません。フィルタを緩めるかリセットしてください。',
+    noPoolShort: 'スポットプールなし',
+    cellTitle: (avg, score) => `48h平均 ${avg} · 現在スコア ${score}`,
+    groupNote: members => ` · <b>グループ照会: ${members}</b> — GPU以外のタイプは3つ未満で照会するとAWSが常に低いスコアを返すため、収集機は「この3つのいずれか」で照会します。価格は3つの中の最安値です。`,
     explain1Title: 'スポットインスタンスとは？',
     explain1P: 'AWSの<b>余剰EC2キャパシティをオンデマンド比最大90%割引</b>で借りる購入方式です。その代わり、AWSがキャパシティを回収する必要が生じると<b>2分前通知の後にインスタンスが中断</b>されることがあり、需要が集中すると確保自体ができない場合もあります。',
     explain1Li: [
       'スポット価格はAZ単位の需給に応じて随時変動します — 同一リージョンでもAZごとに価格が異なります。',
-      '大型GPUインスタンス(p5・g6e 48xlarge)は供給が少なく、<b>確保自体が難しい</b>状況が頻繁に発生します。',
+      '大型GPUインスタンス(p5・g6e 48xlarge)は供給が少なく、<b>確保自体が難しい</b>状況が頻繁に発生します。汎用のT・C・Rタイプは概ねスコアが高くなります。',
       'token-forgeは100%スポット + capacity-optimized配分 + 中断時の自動再確保(ASG)で運用します。',
     ],
     explain2Title: '配置スコア(Spot Placement Score)とは？',
@@ -322,7 +398,7 @@ const I18N = {
     explain2Li: [
       '<b>9〜10</b> 非常に高い · <b>4〜8</b> 試す価値あり · <b>1〜3</b> 確保が難しい見込み。',
       '保証ではなく確率的な指標です — スコア9でも失敗することがあり、逆もあり得ます。',
-      '単一インスタンスタイプで照会すると低く出る傾向があるため、<b>絶対値よりトレンド・リージョン間比較</b>で読むべきです。',
+      'GPUタイプを1つだけ照会すると複数タイプの照会より低く出る傾向があるため、<b>絶対値よりトレンド・リージョン間比較</b>で読むべきです。T・C・Rは同じサイズの3タイプをまとめて照会します。',
       '活用法: スコアが高いリージョン・AZ・時間帯を選んで起動(<code>-c azs=</code>)すると確保確率が上がります。',
     ],
     footnote: '配置スコアは1〜10(高いほど確保可能性が高い)。スコア収集は2026-08-06開始。14日より前のデータは6時間バケット(スコア=最大、価格=最小)で要約保存。スコアチャートの重なる線は判別用に±2pxの微調整オフセットを適用。ヒートマップは収集期間全体のKST曜日×時間帯平均スコア。',
@@ -363,14 +439,121 @@ const ORDER = Object.keys(COLORS);
 const AZ_COLORS = ['var(--s-apne1)', 'var(--s-apne2)', 'var(--s-use1)', 'var(--s-use2)'];
 const SEQ = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
 const RANGE_DAYS = [1, 7, 30, 90];
-let curDays = 7;
+const FAMILIES = ['gpu', 't', 'c', 'r', 'other'];
+const ARCHS = ['all', 'x86', 'arm'];
+const MIN_OPTIONS = [0, 3, 5, 7, 9];
+const SORTS = ['avg', 'score', 'price', 'name'];
+// 필터·선택 상태 — URL 해시와 동기화해 링크로 공유할 수 있게 한다.
+// fams가 비어 있으면 "전체 계열", regions는 최소 1개를 유지한다.
+const state = { days: 7, fams: new Set(), arch: 'all', regions: new Set(ORDER), q: '', min: 0, sort: 'avg', type: null };
 const selRegion = {};   // type -> region (AZ 타임라인·히트맵용)
+let METRICS = {};       // type -> region -> { score, avg48, price }
 const t = () => I18N[LANG];
 const regionName = r => t().regions[r].full;
 const shortName = r => t().regions[r].short;
 const kst = ts => new Date(ts).toLocaleString(LOCALE_MAP[LANG], { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', hour12: false });
 const kstDay = ts => new Date(ts).toLocaleString(LOCALE_MAP[LANG], { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' });
 const last = a => a && a.length ? a[a.length - 1] : null;
+// 소형 타입(t3.medium 등)은 시간당 $0.01대이므로 $1 미만은 소수 4자리까지 표시한다.
+const fmtPrice = v => '$' + Number(v).toFixed(v >= 1 ? 2 : 4);
+const fmtAxisPrice = v => v === 0 ? '$0' : '$' + Number(v).toFixed(v >= 10 ? 1 : v >= 1 ? 2 : 4);
+function heatStyle(avg) {
+  const idx = Math.min(6, Math.max(0, Math.floor((avg - 1) / 9 * 7)));
+  return `background:${SEQ[idx]};color:${idx >= 3 ? '#ffffff' : '#0b0b0b'}`;
+}
+
+// ---- URL 해시 <-> 상태 ----
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const d = Number(p.get('d')); if (RANGE_DAYS.includes(d)) state.days = d;
+  state.fams = new Set((p.get('fam') || '').split(',').filter(f => FAMILIES.includes(f)));
+  if (ARCHS.includes(p.get('arch'))) state.arch = p.get('arch');
+  const reg = (p.get('reg') || '').split(',').filter(r => ORDER.includes(r));
+  if (reg.length) state.regions = new Set(reg);
+  state.q = (p.get('q') || '').slice(0, 60);
+  const min = Number(p.get('min')); if (MIN_OPTIONS.includes(min)) state.min = min;
+  if (SORTS.includes(p.get('sort'))) state.sort = p.get('sort');
+  state.type = p.get('type') || null;
+}
+function writeHash() {
+  const p = new URLSearchParams();
+  if (state.days !== 7) p.set('d', state.days);
+  if (state.fams.size) p.set('fam', FAMILIES.filter(f => state.fams.has(f)).join(','));
+  if (state.arch !== 'all') p.set('arch', state.arch);
+  if (state.regions.size !== ORDER.length) p.set('reg', ORDER.filter(r => state.regions.has(r)).join(','));
+  if (state.q.trim()) p.set('q', state.q.trim());
+  if (state.min) p.set('min', state.min);
+  if (state.sort !== 'avg') p.set('sort', state.sort);
+  if (state.type) p.set('type', state.type);
+  const h = p.toString();
+  try { history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch (e) { /* ignore */ }
+}
+
+// ---- 타입 메타 ----
+// 피드의 typeMeta를 우선 쓰고, 없으면(구버전 피드·자가 수집기) 타입 이름에서 계열·아키텍처를 추정한다.
+function typeMeta(type) {
+  const m = DATA.typeMeta?.[type] || {};
+  const c = type[0];
+  const family = FAMILIES.includes(m.family) ? m.family
+    : (c === 'p' || c === 'g') ? 'gpu' : ['t', 'c', 'r'].includes(c) ? c : 'other';
+  const arch = m.arch === 'arm' || m.arch === 'x86' ? m.arch
+    : /^[a-z]+\d+[a-z]*g[a-z]*\./.test(type) ? 'arm' : 'x86';   // t4g·c7g·r7gd 등 Graviton
+  // members: 한 번의 배치점수 조회에 함께 넣는 인스턴스 타입들. GPU는 자기 자신 1개, t·c·r은 같은 사양 3개 묶음.
+  const members = Array.isArray(m.members) && m.members.length ? m.members : [type];
+  return { family, arch, spec: m.spec, gpu: m.gpu, members };
+}
+function specOf(type) {
+  const m = typeMeta(type), parts = [];
+  if (m.gpu) parts.push(m.gpu);
+  if (m.spec) parts.push(m.spec);
+  parts.push(m.arch === 'arm' ? 'Arm' : 'x86');
+  return parts.join(' · ');
+}
+
+// ---- 타입×리전 지표 (데이터에서 1회 계산) ----
+// 배치점수는 시간 단위로 출렁이므로 48h 평균을 1순위로 — "안정적 확보" 관점의 줄 세우기.
+function computeMetrics() {
+  const cut = Date.now() - 2 * 864e5;
+  METRICS = {};
+  for (const type of DATA.types) {
+    METRICS[type] = {};
+    for (const r of ORDER) {
+      const s = DATA.scores[type]?.[r]; if (!s || !s.length) continue;
+      const recent = s.filter(p => Date.parse(p[0]) >= cut).map(p => p[1]);
+      METRICS[type][r] = { score: last(s)[1],
+        avg48: recent.length ? Math.round(recent.reduce((a, b) => a + b) / recent.length * 10) / 10 : null,
+        price: last(DATA.prices[type]?.[r])?.[1] };
+    }
+  }
+}
+// 선택된 리전 안에서의 리전 순위 (48h 평균 → 현재 점수 → 낮은 가격)
+function rankRegions(type) {
+  const rows = ORDER.filter(r => state.regions.has(r) && METRICS[type][r]).map(r => ({ region: r, ...METRICS[type][r] }));
+  rows.sort((a, b) => ((b.avg48 ?? -1) - (a.avg48 ?? -1)) || (b.score - a.score) || ((a.price ?? Infinity) - (b.price ?? Infinity)));
+  return rows;
+}
+// 필터를 통과한 타입 목록을 정렬해 돌려준다.
+function visibleTypes() {
+  const terms = state.q.toLowerCase().split(/[\s,]+/).filter(Boolean);
+  const list = DATA.types.map((type, i) => {
+    const ranked = rankRegions(type);
+    const prices = ranked.map(x => x.price).filter(v => v != null);
+    return { type, i, meta: typeMeta(type), ranked, best: ranked[0] || null,
+      minPrice: prices.length ? Math.min(...prices) : null };
+  }).filter(x =>
+    (!state.fams.size || state.fams.has(x.meta.family)) &&
+    (state.arch === 'all' || x.meta.arch === state.arch) &&
+    (!terms.length || terms.some(q => [x.type, ...x.meta.members].some(n => n.toLowerCase().includes(q)))) &&
+    (!state.min || (x.best?.avg48 ?? -1) >= state.min));
+  const byPrice = (a, b) => (a.minPrice ?? Infinity) - (b.minPrice ?? Infinity);
+  const cmp = {
+    avg: (a, b) => ((b.best?.avg48 ?? -1) - (a.best?.avg48 ?? -1)) || byPrice(a, b),
+    score: (a, b) => ((b.best?.score ?? -1) - (a.best?.score ?? -1)) || byPrice(a, b),
+    price: byPrice,
+    name: () => 0,
+  }[state.sort];
+  return list.sort((a, b) => cmp(a, b) || (a.i - b.i));
+}
 
 // ---- chrome (language-only strings, no DATA dependency) ----
 function renderChrome() {
@@ -389,19 +572,20 @@ function renderChrome() {
     LANG = b.dataset.lang;
     try { localStorage.setItem('tf-lang', LANG); } catch (err) { /* ignore */ }
     renderChrome();
-    if (DATA) { renderSummary(); renderAll(); }
+    if (DATA) { renderFilters(); renderResults(); }
   };
 
   const rangeBox = document.getElementById('ranges');
   rangeBox.setAttribute('aria-label', t().periodGroupLabel);
   rangeBox.innerHTML = RANGE_DAYS.map(d =>
-    `<button type="button" data-d="${d}" aria-pressed="${d === curDays}">${t().ranges[d]}</button>`).join('');
+    `<button type="button" data-d="${d}" aria-pressed="${d === state.days}">${t().ranges[d]}</button>`).join('');
   rangeBox.onclick = e => {
     const b = e.target.closest('button'); if (!b) return;
-    curDays = Number(b.dataset.d);
+    state.days = Number(b.dataset.d);
     rangeBox.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    renderAll();
+    if (DATA) { writeHash(); renderDetail(); }
   };
+  document.getElementById('rangeNote').textContent = t().rangeNote;
 
   document.getElementById('topHeading').innerHTML =
     `${t().topHeading} <span class="span" style="font-weight:400;font-size:0.82rem;color:var(--muted)">${t().topHeadingSpan}</span>`;
@@ -419,53 +603,130 @@ function renderChrome() {
     </div>`;
 
   document.getElementById('fine').textContent = t().footnote;
-
-  if (DATA) {
-    document.getElementById('legend').innerHTML = ORDER.map(r =>
-      `<span class="chip"><span class="sw" style="background:${COLORS[r]}"></span>${regionName(r)}</span>`).join('');
-    document.getElementById('sub').textContent = t().sub(DATA.generated);
-  }
+  if (DATA) document.getElementById('sub').textContent = t().sub(DATA.generated);
 }
+readHash();
 renderChrome();
 
 // 대시보드는 GitHub Pages(spot.roboco.io), 데이터 피드는 CloudFront — 절대 URL로 교차 출처 fetch (피드는 CORS 전면 허용)
 const FEED_URL = 'https://d16jdvzof4zpo7.cloudfront.net/data.json';
 DATA = await (await fetch(FEED_URL + '?t=' + Math.floor(Date.now()/60000), {cache:'no-store'})).json();
-renderChrome(); // fill in DATA-dependent sub/legend now that DATA is available
+computeMetrics();
+renderChrome(); // fill in DATA-dependent sub now that DATA is available
 
-// ---- 확보 안정성 순위·타일 (데이터에서 자동 계산) ----
-// 배치점수는 시간 단위로 출렁이므로 48h 평균을 1순위로 — "안정적 확보" 관점의 줄 세우기.
-function rankingRows(type) {
-  const rows = [];
-  for (const r of ORDER) {
-    const s = DATA.scores[type]?.[r]; if (!s || !s.length) continue;
-    const cut = Date.now() - 2 * 864e5;
-    const recent = s.filter(p => Date.parse(p[0]) >= cut).map(p => p[1]);
-    rows.push({ region: r, score: last(s)[1],
-      avg48: recent.length ? Math.round(recent.reduce((a, b) => a + b) / recent.length * 10) / 10 : null,
-      price: last(DATA.prices[type]?.[r])?.[1] });
-  }
-  rows.sort((a, b) => ((b.avg48 ?? -1) - (a.avg48 ?? -1)) || (b.score - a.score) || ((a.price ?? 99) - (b.price ?? 99)));
-  return rows;
+// ---- 필터 바 ----
+// 버튼은 한 번만 그리고(초기·언어 변경 시), 클릭 때는 눌림 상태만 맞춘다 — 다시 그리면 키보드 포커스를 잃는다.
+function syncFilters() {
+  const box = document.getElementById('filters');
+  box.querySelectorAll('[data-fam]').forEach(b => b.setAttribute('aria-pressed',
+    String(b.dataset.fam ? state.fams.has(b.dataset.fam) : !state.fams.size)));
+  box.querySelectorAll('[data-arch]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.arch === state.arch)));
+  box.querySelectorAll('[data-reg]').forEach(b => b.setAttribute('aria-pressed', String(state.regions.has(b.dataset.reg))));
+  document.getElementById('q').value = state.q;
+  document.getElementById('minSel').value = String(state.min);
+  document.getElementById('sortSel').value = state.sort;
 }
-function renderSummary() {
-  const RANKS = Object.fromEntries(DATA.types.map(type => [type, rankingRows(type)]));
-  document.getElementById('ranking').innerHTML = DATA.types.map(type =>
-    `<div class="tblwrap"><div class="cap">${type}</div>
-     <table><colgroup><col class="c-idx"><col class="c-region"><col class="c-avg"><col class="c-score"><col class="c-price"></colgroup>
-     <thead><tr>${t().rankHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
-      RANKS[type].map((x, i) => `<tr${i === 0 ? ' class="good"' : ''}><td>${i + 1}</td>
-        <td><span class="sw" style="background:${COLORS[x.region]}"></span>${shortName(x.region)}</td>
-        <td><b>${x.avg48 ?? '—'}</b></td><td>${x.score}</td>
-        <td>${x.price != null ? '$' + x.price.toFixed(2) : '—'}</td></tr>`).join('')
-    }</tbody></table></div>`).join('');
-  document.getElementById('tiles').innerHTML = DATA.types.map(type => {
-    const best = RANKS[type][0];
-    if (!best) return `<div class="tile"><div class="k">${type}</div><div class="v">${t().noData}</div></div>`;
-    return `<div class="tile"><div class="k">${t().mostStable(type)}</div><div class="v">${t().avg48Line(shortName(best.region), best.avg48 ?? '—')}</div>
-      <div class="d">${t().currentScoreLine(best.score, best.price?.toFixed(2))}</div></div>`;
+function renderFilters() {
+  const box = document.getElementById('filters');
+  const famCount = {};
+  DATA.types.forEach(type => { const f = typeMeta(type).family; famCount[f] = (famCount[f] || 0) + 1; });
+  const btn = (attr, val, label) => `<button type="button" data-${attr}="${val}" aria-pressed="false">${label}</button>`;
+  box.innerHTML = `
+    <div class="frow">
+      <span class="flab">${t().filterFamily}</span>
+      <div class="chips" role="group" aria-label="${t().filterFamily}">
+        ${btn('fam', '', `${t().all} <i>${DATA.types.length}</i>`)}
+        ${FAMILIES.filter(f => famCount[f]).map(f => btn('fam', f, `${t().familyLabels[f]} <i>${famCount[f]}</i>`)).join('')}
+      </div>
+      <span class="flab">${t().filterArch}</span>
+      <div class="chips" role="group" aria-label="${t().filterArch}">
+        ${ARCHS.map(a => btn('arch', a, a === 'all' ? t().all : a === 'arm' ? 'Arm' : 'x86')).join('')}
+      </div>
+    </div>
+    <div class="frow">
+      <span class="flab">${t().filterRegion}</span>
+      <div class="rchips" role="group" aria-label="${t().filterRegion}">
+        ${ORDER.map(r => `<button type="button" data-reg="${r}" aria-pressed="true"><span class="sw" style="background:${COLORS[r]}"></span>${regionName(r)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="frow">
+      <input type="search" id="q" placeholder="${t().searchPlaceholder}" aria-label="${t().searchPlaceholder}" autocomplete="off" spellcheck="false">
+      <label class="flab">${t().minLabel}
+        <select id="minSel">${MIN_OPTIONS.map(n => `<option value="${n}">${n ? t().minAtLeast(n) : t().all}</option>`).join('')}</select></label>
+      <label class="flab">${t().sortLabel}
+        <select id="sortSel">${SORTS.map(s => `<option value="${s}">${t().sorts[s]}</option>`).join('')}</select></label>
+      <button type="button" class="reset" id="resetBtn">${t().reset}</button>
+      <span class="count" id="count" aria-live="polite"></span>
+    </div>`;
+  syncFilters();
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if ('fam' in b.dataset) {
+      const f = b.dataset.fam;
+      if (!f) state.fams.clear(); else if (state.fams.has(f)) state.fams.delete(f); else state.fams.add(f);
+    } else if ('arch' in b.dataset) {
+      state.arch = b.dataset.arch;
+    } else if ('reg' in b.dataset) {
+      const r = b.dataset.reg;
+      if (!state.regions.has(r)) state.regions.add(r);
+      else if (state.regions.size > 1) state.regions.delete(r);   // 마지막 리전은 끌 수 없다
+    } else if (b.id === 'resetBtn') {
+      Object.assign(state, { fams: new Set(), arch: 'all', regions: new Set(ORDER), q: '', min: 0, sort: 'avg' });
+    } else return;
+    syncFilters(); renderResults();
+  };
+  document.getElementById('q').oninput = e => { state.q = e.target.value; renderResults(); };
+  document.getElementById('minSel').onchange = e => { state.min = Number(e.target.value); renderResults(); };
+  document.getElementById('sortSel').onchange = e => { state.sort = e.target.value; renderResults(); };
+}
+
+// ---- 계열별 최안정 타일 + 타입×리전 비교표 ----
+function renderTiles(list) {
+  const fams = FAMILIES.filter(f => list.some(x => x.meta.family === f));
+  document.getElementById('tiles').innerHTML = fams.map(f => {
+    // 계열 안에서 48h 평균이 가장 높은 타입, 동점이면 더 싼 타입
+    const top = list.filter(x => x.meta.family === f && x.best).sort((a, b) =>
+      ((b.best.avg48 ?? -1) - (a.best.avg48 ?? -1)) || ((a.best.price ?? Infinity) - (b.best.price ?? Infinity)))[0];
+    if (!top) return `<div class="tile"><div class="k">${t().familyLabels[f]}</div><div class="v">${t().noData}</div></div>`;
+    return `<button type="button" class="tile" data-type="${top.type}"><div class="k">${t().mostStable(t().familyLabels[f])}</div>
+      <div class="v">${top.type}</div>
+      <div class="d">${t().tileLine(shortName(top.best.region), top.best.avg48 ?? '—', top.best.price != null ? fmtPrice(top.best.price) : '—')}</div></button>`;
   }).join('');
 }
+function renderMatrix(list) {
+  const regs = ORDER.filter(r => state.regions.has(r));
+  const box = document.getElementById('ranking');
+  if (!list.length) { box.innerHTML = `<p class="empty">${t().noMatch}</p>`; return; }
+  box.innerHTML = `<div class="tblwrap"><table class="mx">
+    <thead><tr><th>${t().mxType}</th><th>${t().mxSpec}</th><th>${t().mxBest}</th>${
+      regs.map(r => `<th><span class="sw" style="background:${COLORS[r]}"></span>${shortName(r)}</th>`).join('')}</tr></thead>
+    <tbody>${list.map(x => {
+      const noPool = DATA.noPool?.[x.type] || [];
+      const cells = regs.map(r => {
+        const m = METRICS[x.type][r];
+        if (!m) return noPool.includes(r)
+          ? `<td><span class="np" title="${t().noPoolShort}">${t().noPoolShort}</span></td>` : '<td><span class="np">—</span></td>';
+        return `<td><span class="sc" style="${m.avg48 != null ? heatStyle(m.avg48) : ''}" title="${t().cellTitle(m.avg48 ?? '—', m.score)}">${m.avg48 ?? '—'}</span><span class="pr">${m.price != null ? fmtPrice(m.price) : '—'}</span></td>`;
+      }).join('');
+      return `<tr data-type="${x.type}"${x.type === state.type ? ' class="sel"' : ''}>
+        <td><button type="button" class="tbtn" aria-pressed="${x.type === state.type}">${x.type}</button><span class="fam">${t().familyLabels[x.meta.family]}</span>${
+          x.meta.members.length > 1 ? `<span class="mem">${x.meta.members.join(' · ')}</span>` : ''}</td>
+        <td class="spec">${specOf(x.type)}</td>
+        <td>${x.best ? `<span class="sw" style="background:${COLORS[x.best.region]}"></span>${shortName(x.best.region)}` : '—'}</td>
+        ${cells}</tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+function selectType(type, scroll) {
+  state.type = type;
+  renderResults();
+  if (scroll) document.getElementById('sections').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+document.getElementById('ranking').onclick = e => {
+  const tr = e.target.closest('tr[data-type]'); if (tr) selectType(tr.dataset.type, true);
+};
+document.getElementById('tiles').onclick = e => {
+  const b = e.target.closest('[data-type]'); if (b) selectType(b.dataset.type, true);
+};
 
 // ---- 공용 시계열 차트 ----
 function clampSeries(arr, cutoff) {
@@ -479,19 +740,21 @@ function clampSeries(arr, cutoff) {
 }
 function drawChart(card, seriesMap, opts) {
   card.querySelectorAll('svg, .tip, .empty').forEach(e => e.remove());
-  const W = 560, H = 250, m = { t: 12, r: 118, b: 26, l: opts.yMax === 10 ? 26 : 40 };
+  const W = 560, H = 250, m = { t: 12, r: 118, b: 26, l: opts.yMax === 10 ? 26 : 52 };
   const keys = opts.keys.filter(k => seriesMap[k] && seriesMap[k].length > 1);
   if (!keys.length) { card.insertAdjacentHTML('beforeend', `<div class="empty">${t().chartEmpty}</div>`); return; }
   let tMin = Infinity, tMax = -Infinity, vMax = 0;
   keys.forEach(k => seriesMap[k].forEach(([ts, v]) => {
     const tt = Date.parse(ts); tMin = Math.min(tMin, tt); tMax = Math.max(tMax, tt); vMax = Math.max(vMax, v);
   }));
-  const yMax = opts.yMax || Math.max(1, Math.ceil(vMax * 1.15));
+  // 가격 축 상한: $1 이상은 정수로 올림, 그 미만(소형 타입)은 최상위 자릿수 단위로 올림 (0.0137 → 0.02)
+  const niceMax = v => { if (v >= 1) return Math.ceil(v); if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)); return Math.ceil(v / p - 1e-9) * p; };
+  const yMax = opts.yMax || niceMax(vMax * 1.15);
   const x = tt => m.l + (tt - tMin) / (tMax - tMin) * (W - m.l - m.r);
   const y = v => H - m.b - v / yMax * (H - m.t - m.b);
   const xfmt = (tMax - tMin) > 3 * 864e5 ? kstDay : kst;
   let g = '';
-  const yTicks = opts.yMax === 10 ? [0, 2, 4, 6, 8, 10] : Array.from({ length: 5 }, (_, i) => Math.round(yMax / 4 * i * 100) / 100);
+  const yTicks = opts.yMax === 10 ? [0, 2, 4, 6, 8, 10] : Array.from({ length: 5 }, (_, i) => Math.round(yMax / 4 * i * 1e5) / 1e5);
   yTicks.forEach(v => { g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
     <text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${opts.yFmt(v)}</text>`; });
   for (let i = 0; i <= 4; i++) { const tt = tMin + (tMax - tMin) * i / 4;
@@ -562,12 +825,12 @@ function renderHeatmap(el, type, region) {
   el.innerHTML = h + '</div>';
 }
 
-// ---- 타입 섹션 ----
+// ---- 선택한 타입의 상세 ----
 function renderTypeExtras(type) {
   const region = selRegion[type];
   const sec = document.querySelector(`section[data-type="${CSS.escape(type)}"]`);
   sec.querySelectorAll('.chips button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.r === region)));
-  const cutoff = Date.now() - curDays * 864e5;
+  const cutoff = Date.now() - state.days * 864e5;
   const azCard = sec.querySelector('.az-card');
   const azids = Object.keys(DATA.azScores[type] || {}).filter(a => DATA.azMeta[a]?.region === region).sort();
   const seriesMap = {};
@@ -579,63 +842,79 @@ function renderTypeExtras(type) {
   hmCard.querySelector('h3').innerHTML = t().hmChartTitleFor(shortName(region));
   renderHeatmap(hmCard.querySelector('.hm-body'), type, region);
 }
-function renderAll() {
-  const cutoff = Date.now() - curDays * 864e5;
+// 타입이 많아져 전부 나열하지 않고, 비교표에서 고른 타입 1개만 그린다. 리전 필터는 차트·AZ 표에도 적용된다.
+function renderDetail() {
   const secRoot = document.getElementById('sections');
   secRoot.innerHTML = '';
-  DATA.types.forEach(type => {
-    if (!(type in selRegion)) selRegion[type] = 'ap-northeast-1';
-    const scores = {}, prices = {};
-    ORDER.forEach(r => {
-      scores[r] = clampSeries(DATA.scores[type]?.[r], cutoff);
-      prices[r] = clampSeries(DATA.prices[type]?.[r], cutoff);
-    });
-    const noPool = (DATA.noPool?.[type] || []);
-    const sec = document.createElement('section'); sec.className = 'type'; sec.dataset.type = type;
-    sec.innerHTML = `<h2>${type}</h2>
-      <p class="note">${t().typeNotes[type]}${noPool.length ? t().noPoolSuffix(noPool.map(shortName).join(', ')) : ''}</p>`;
-    const grid1 = document.createElement('div'); grid1.className = 'charts';
-    const c1 = document.createElement('div'); c1.className = 'card'; c1.innerHTML = `<h3>${t().chartScoreTitle}</h3>`;
-    const c2 = document.createElement('div'); c2.className = 'card'; c2.innerHTML = `<h3>${t().chartPriceTitle}</h3>`;
-    grid1.appendChild(c1); grid1.appendChild(c2); sec.appendChild(grid1);
-    const chips = document.createElement('div'); chips.className = 'chips'; chips.style.marginBottom = '10px';
-    chips.innerHTML = ORDER.map(r => `<button type="button" data-r="${r}" aria-pressed="false">${shortName(r)}</button>`).join('');
-    sec.appendChild(chips);
-    const grid2 = document.createElement('div'); grid2.className = 'charts';
-    const az = document.createElement('div'); az.className = 'card az-card'; az.innerHTML = `<h3>${t().azChartTitleFor(shortName(selRegion[type]))}</h3>`;
-    const hm = document.createElement('div'); hm.className = 'card hm-card'; hm.innerHTML = `<h3>${t().hmChartTitleFor(shortName(selRegion[type]))}</h3><div class="hm-body"></div>`;
-    grid2.appendChild(az); grid2.appendChild(hm); sec.appendChild(grid2);
-    const rowsData = Object.entries(DATA.azScores[type] || {}).map(([azid, series]) => {
-      const meta = DATA.azMeta[azid] || { region: '?', azname: '?' };
-      const v = clampSeries(series, cutoff).map(p => p[1]);
-      if (!v.length) return null;
-      const price = DATA.azPrice[type]?.[meta.azname];
-      return { azid, region: meta.region, azname: meta.azname, latest: v[v.length - 1],
-        avg: Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10, max: Math.max(...v), price };
-    }).filter(Boolean).sort((a, b) => b.latest - a.latest || b.avg - a.avg);
-    const tw = document.createElement('div'); tw.className = 'tblwrap'; tw.style.marginTop = '14px';
-    tw.innerHTML = `<table><thead><tr>${t().azTableHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
-      rowsData.map(a => { const color = COLORS[a.region] || 'var(--muted)'; const rname = t().regions[a.region]?.full || a.region;
-        return `<tr${a.latest >= 3 ? ' class="good"' : ''}><td><span class="sw" style="background:${color}"></span>${a.azid}</td>
-        <td>${rname}</td><td>${a.azname}</td>
-        <td>${a.latest}</td><td>${a.avg}</td><td>${a.max}</td>
-        <td>${a.price != null ? '$' + a.price.toFixed(2) : '—'}</td></tr>`; }).join('')
-    }</tbody></table>`;
-    sec.appendChild(tw);
-    secRoot.appendChild(sec);
-    drawChart(c1, scores, { keys: ORDER, yMax: 10, step: true, yFmt: v => String(v), colorOf: r => COLORS[r], labelOf: shortName });
-    drawChart(c2, prices, { keys: ORDER, step: false, yFmt: v => '$' + Number(v).toFixed(v >= 10 ? 1 : 2), colorOf: r => COLORS[r], labelOf: shortName });
-    chips.addEventListener('click', e => {
-      const b = e.target.closest('button'); if (!b) return;
-      selRegion[type] = b.dataset.r;
-      renderTypeExtras(type);
-    });
+  const type = state.type;
+  if (!type) return;
+  const regs = ORDER.filter(r => state.regions.has(r));
+  if (!regs.includes(selRegion[type])) selRegion[type] = regs.find(r => METRICS[type][r]) || regs[0];
+  const cutoff = Date.now() - state.days * 864e5;
+  const scores = {}, prices = {};
+  regs.forEach(r => {
+    scores[r] = clampSeries(DATA.scores[type]?.[r], cutoff);
+    prices[r] = clampSeries(DATA.prices[type]?.[r], cutoff);
+  });
+  const noPool = (DATA.noPool?.[type] || []);
+  const sec = document.createElement('section'); sec.className = 'type'; sec.dataset.type = type;
+  const meta = typeMeta(type);
+  sec.innerHTML = `<h2>${type} <span class="fam">${t().familyLabels[meta.family]}</span></h2>
+    <p class="note">${t().typeNotes[type] || specOf(type)}${meta.members.length > 1 ? t().groupNote(meta.members.join(', ')) : ''}${noPool.length ? t().noPoolSuffix(noPool.map(shortName).join(', ')) : ''}</p>`;
+  const grid1 = document.createElement('div'); grid1.className = 'charts';
+  const c1 = document.createElement('div'); c1.className = 'card'; c1.innerHTML = `<h3>${t().chartScoreTitle}</h3>`;
+  const c2 = document.createElement('div'); c2.className = 'card'; c2.innerHTML = `<h3>${t().chartPriceTitle}</h3>`;
+  grid1.appendChild(c1); grid1.appendChild(c2); sec.appendChild(grid1);
+  const chips = document.createElement('div'); chips.className = 'chips'; chips.style.marginBottom = '10px';
+  chips.innerHTML = regs.map(r => `<button type="button" data-r="${r}" aria-pressed="false">${shortName(r)}</button>`).join('');
+  sec.appendChild(chips);
+  const grid2 = document.createElement('div'); grid2.className = 'charts';
+  const az = document.createElement('div'); az.className = 'card az-card'; az.innerHTML = '<h3></h3>';
+  const hm = document.createElement('div'); hm.className = 'card hm-card'; hm.innerHTML = '<h3></h3><div class="hm-body"></div>';
+  grid2.appendChild(az); grid2.appendChild(hm); sec.appendChild(grid2);
+  const rowsData = Object.entries(DATA.azScores[type] || {}).map(([azid, series]) => {
+    const zm = DATA.azMeta[azid] || { region: '?', azname: '?' };
+    if (!state.regions.has(zm.region)) return null;
+    const v = clampSeries(series, cutoff).map(p => p[1]);
+    if (!v.length) return null;
+    const price = DATA.azPrice[type]?.[zm.azname];
+    return { azid, region: zm.region, azname: zm.azname, latest: v[v.length - 1],
+      avg: Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10, max: Math.max(...v), price };
+  }).filter(Boolean).sort((a, b) => b.latest - a.latest || b.avg - a.avg);
+  const tw = document.createElement('div'); tw.className = 'tblwrap'; tw.style.marginTop = '14px';
+  tw.innerHTML = `<table><thead><tr>${t().azTableHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
+    rowsData.map(a => { const color = COLORS[a.region] || 'var(--muted)'; const rname = t().regions[a.region]?.full || a.region;
+      return `<tr${a.latest >= 3 ? ' class="good"' : ''}><td><span class="sw" style="background:${color}"></span>${a.azid}</td>
+      <td>${rname}</td><td>${a.azname}</td>
+      <td>${a.latest}</td><td>${a.avg}</td><td>${a.max}</td>
+      <td>${a.price != null ? fmtPrice(a.price) : '—'}</td></tr>`; }).join('')
+  }</tbody></table>`;
+  sec.appendChild(tw);
+  secRoot.appendChild(sec);
+  drawChart(c1, scores, { keys: regs, yMax: 10, step: true, yFmt: v => String(v), colorOf: r => COLORS[r], labelOf: shortName });
+  drawChart(c2, prices, { keys: regs, step: false, yFmt: fmtAxisPrice, colorOf: r => COLORS[r], labelOf: shortName });
+  chips.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    selRegion[type] = b.dataset.r;
     renderTypeExtras(type);
   });
+  renderTypeExtras(type);
 }
 
-renderSummary();
-renderAll();
+// 필터·정렬·선택이 바뀔 때마다 호출: 목록을 다시 계산하고 타일·비교표·상세를 갱신한다.
+function renderResults() {
+  const list = visibleTypes();
+  // 선택한 타입이 필터에서 빠지면 목록의 첫 타입으로 옮긴다 (목록이 비면 상세를 비운다)
+  if (!list.some(x => x.type === state.type)) state.type = list[0]?.type || null;
+  writeHash();
+  document.getElementById('count').textContent = t().countLine(list.length, DATA.types.length);
+  renderTiles(list);
+  renderMatrix(list);
+  renderDetail();
+}
+
+renderFilters();
+renderResults();
 
 } catch (e) {
   const LANG_SAFE = (typeof LANG !== 'undefined' && I18N[LANG]) ? LANG : 'en';
