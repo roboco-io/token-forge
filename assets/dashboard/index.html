@@ -7,13 +7,13 @@
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-9G1SGM9SZQ');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spot Placement Score × Price Dashboard</title>
-<meta name="description" content="Hourly AWS spot placement scores and lowest spot prices for GPU (p5, g6e) and T, C, R instance types across 5 regions — filter by family, architecture and region.">
+<meta name="description" content="Hourly AWS spot placement scores and lowest spot prices for GPU (p5, g6e) and T, M, C, R, I instance types across 5 regions — filter by family, architecture and region.">
 <link rel="icon" type="image/svg+xml" href="roboco-logo.svg">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ROBOCO">
 <meta property="og:url" content="https://spot.roboco.io/">
 <meta property="og:title" content="Spot Placement Score × Price Dashboard">
-<meta property="og:description" content="Hourly AWS spot placement scores and lowest spot prices for GPU (p5, g6e) and T, C, R instance types across 5 regions — filter by family, architecture and region.">
+<meta property="og:description" content="Hourly AWS spot placement scores and lowest spot prices for GPU (p5, g6e) and T, M, C, R, I instance types across 5 regions — filter by family, architecture and region.">
 <meta property="og:image" content="https://spot.roboco.io/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -233,7 +233,7 @@ const I18N = {
     filterFamily: 'Family',
     filterArch: 'CPU',
     filterRegion: 'Regions',
-    familyLabels: { gpu: 'GPU', t: 'T · burstable', c: 'C · compute', r: 'R · memory', other: 'Other' },
+    familyLabels: { gpu: 'GPU', t: 'T · burstable', m: 'M · general', c: 'C · compute', r: 'R · memory', i: 'I · storage', other: 'Other' },
     searchPlaceholder: 'Search type, e.g. g6e c7i',
     minLabel: '48h avg score',
     minAtLeast: n => `${n} or higher`,
@@ -303,7 +303,7 @@ const I18N = {
     filterFamily: '계열',
     filterArch: 'CPU',
     filterRegion: '리전',
-    familyLabels: { gpu: 'GPU', t: 'T · 버스터블', c: 'C · 컴퓨팅', r: 'R · 메모리', other: '기타' },
+    familyLabels: { gpu: 'GPU', t: 'T · 버스터블', m: 'M · 범용', c: 'C · 컴퓨팅', r: 'R · 메모리', i: 'I · 스토리지', other: '기타' },
     searchPlaceholder: '타입 검색 (예: g6e c7i)',
     minLabel: '48h 평균 점수',
     minAtLeast: n => `${n} 이상`,
@@ -320,7 +320,7 @@ const I18N = {
     explain1P: 'AWS의 <b>유휴 EC2 용량을 온디맨드 대비 최대 90% 할인</b>된 시세로 빌리는 구매 방식입니다. 대신 AWS가 용량을 회수해야 하면 <b>2분 전 통지 후 인스턴스가 중단</b>될 수 있고, 수요가 몰리면 애초에 확보 자체가 안 되기도 합니다.',
     explain1Li: [
       '스팟 시세는 AZ 단위 수급에 따라 수시로 변동 — 같은 리전이라도 AZ별 가격이 다릅니다.',
-      'GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다. 범용 T·C·R 타입은 대체로 점수가 높습니다.',
+      'GPU 대형 인스턴스(p5·g6e 48xlarge)는 공급이 적어 <b>확보 자체가 어려운</b> 상황이 잦습니다. GPU가 아닌 T·M·C·R·I 타입은 대체로 점수가 높습니다.',
       'token-forge는 100% 스팟 + capacity-optimized 배분 + 중단 시 자동 재확보(ASG)로 운영합니다.',
     ],
     explain2Title: '배치점수(Spot Placement Score)란?',
@@ -328,7 +328,7 @@ const I18N = {
     explain2Li: [
       '<b>9-10</b> 매우 높음 · <b>4-8</b> 시도할 만함 · <b>1-3</b> 확보 난항 예상.',
       '보장이 아닌 확률 신호 — 점수 9여도 실패할 수 있고, 반대도 가능합니다.',
-      'GPU 타입 하나만 조회하면 여러 타입을 함께 조회할 때보다 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다. T·C·R은 같은 크기의 타입 3개를 묶어 조회합니다.',
+      'GPU 타입 하나만 조회하면 여러 타입을 함께 조회할 때보다 낮게 나오는 경향 → <b>절대값보다 추세·리전 간 비교</b>로 읽어야 합니다. T·M·C·R·I는 같은 크기의 타입 3개를 묶어 조회합니다.',
       '활용법: 점수가 높은 리전·AZ·시간대를 골라 기동(<code>-c azs=</code>)하면 확보 확률이 올라갑니다.',
     ],
     footnote: '배치점수는 1-10 (높을수록 확보 가능성↑). 점수 수집은 2026-08-06 시작. 14일 이전 데이터는 6시간 버킷(점수=최대, 가격=최소)으로 요약 저장. 점수 차트의 겹치는 선은 판별용 ±2px 미세 오프셋 적용. 히트맵은 전체 수집 기간의 KST 요일×시간대 평균 점수.',
@@ -373,7 +373,7 @@ const I18N = {
     filterFamily: 'ファミリー',
     filterArch: 'CPU',
     filterRegion: 'リージョン',
-    familyLabels: { gpu: 'GPU', t: 'T · バースト可能', c: 'C · コンピューティング', r: 'R · メモリ', other: 'その他' },
+    familyLabels: { gpu: 'GPU', t: 'T · バースト可能', m: 'M · 汎用', c: 'C · コンピューティング', r: 'R · メモリ', i: 'I · ストレージ', other: 'その他' },
     searchPlaceholder: 'タイプ検索 (例: g6e c7i)',
     minLabel: '48h平均スコア',
     minAtLeast: n => `${n}以上`,
@@ -390,7 +390,7 @@ const I18N = {
     explain1P: 'AWSの<b>余剰EC2キャパシティをオンデマンド比最大90%割引</b>で借りる購入方式です。その代わり、AWSがキャパシティを回収する必要が生じると<b>2分前通知の後にインスタンスが中断</b>されることがあり、需要が集中すると確保自体ができない場合もあります。',
     explain1Li: [
       'スポット価格はAZ単位の需給に応じて随時変動します — 同一リージョンでもAZごとに価格が異なります。',
-      '大型GPUインスタンス(p5・g6e 48xlarge)は供給が少なく、<b>確保自体が難しい</b>状況が頻繁に発生します。汎用のT・C・Rタイプは概ねスコアが高くなります。',
+      '大型GPUインスタンス(p5・g6e 48xlarge)は供給が少なく、<b>確保自体が難しい</b>状況が頻繁に発生します。GPU以外のT・M・C・R・Iタイプは概ねスコアが高くなります。',
       'token-forgeは100%スポット + capacity-optimized配分 + 中断時の自動再確保(ASG)で運用します。',
     ],
     explain2Title: '配置スコア(Spot Placement Score)とは？',
@@ -398,7 +398,7 @@ const I18N = {
     explain2Li: [
       '<b>9〜10</b> 非常に高い · <b>4〜8</b> 試す価値あり · <b>1〜3</b> 確保が難しい見込み。',
       '保証ではなく確率的な指標です — スコア9でも失敗することがあり、逆もあり得ます。',
-      'GPUタイプを1つだけ照会すると複数タイプの照会より低く出る傾向があるため、<b>絶対値よりトレンド・リージョン間比較</b>で読むべきです。T・C・Rは同じサイズの3タイプをまとめて照会します。',
+      'GPUタイプを1つだけ照会すると複数タイプの照会より低く出る傾向があるため、<b>絶対値よりトレンド・リージョン間比較</b>で読むべきです。T・M・C・R・Iは同じサイズの3タイプをまとめて照会します。',
       '活用法: スコアが高いリージョン・AZ・時間帯を選んで起動(<code>-c azs=</code>)すると確保確率が上がります。',
     ],
     footnote: '配置スコアは1〜10(高いほど確保可能性が高い)。スコア収集は2026-08-06開始。14日より前のデータは6時間バケット(スコア=最大、価格=最小)で要約保存。スコアチャートの重なる線は判別用に±2pxの微調整オフセットを適用。ヒートマップは収集期間全体のKST曜日×時間帯平均スコア。',
@@ -439,7 +439,7 @@ const ORDER = Object.keys(COLORS);
 const AZ_COLORS = ['var(--s-apne1)', 'var(--s-apne2)', 'var(--s-use1)', 'var(--s-use2)'];
 const SEQ = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
 const RANGE_DAYS = [1, 7, 30, 90];
-const FAMILIES = ['gpu', 't', 'c', 'r', 'other'];
+const FAMILIES = ['gpu', 't', 'm', 'c', 'r', 'i', 'other'];
 const ARCHS = ['all', 'x86', 'arm'];
 const MIN_OPTIONS = [0, 3, 5, 7, 9];
 const SORTS = ['avg', 'score', 'price', 'name'];
@@ -495,10 +495,10 @@ function typeMeta(type) {
   const m = DATA.typeMeta?.[type] || {};
   const c = type[0];
   const family = FAMILIES.includes(m.family) ? m.family
-    : (c === 'p' || c === 'g') ? 'gpu' : ['t', 'c', 'r'].includes(c) ? c : 'other';
+    : (c === 'p' || c === 'g') ? 'gpu' : ['t', 'm', 'c', 'r', 'i'].includes(c) && !type.startsWith('inf') ? c : 'other';
   const arch = m.arch === 'arm' || m.arch === 'x86' ? m.arch
     : /^[a-z]+\d+[a-z]*g[a-z]*\./.test(type) ? 'arm' : 'x86';   // t4g·c7g·r7gd 등 Graviton
-  // members: 한 번의 배치점수 조회에 함께 넣는 인스턴스 타입들. GPU는 자기 자신 1개, t·c·r은 같은 사양 3개 묶음.
+  // members: 한 번의 배치점수 조회에 함께 넣는 인스턴스 타입들. GPU는 자기 자신 1개, 그 외 계열은 같은 사양 3개 묶음.
   const members = Array.isArray(m.members) && m.members.length ? m.members : [type];
   return { family, arch, spec: m.spec, gpu: m.gpu, members };
 }

@@ -109,7 +109,7 @@ roboco runs an always-on **GPU spot availability (placement score) x pricing pub
 service**:
 
 - **Dashboard**: https://spot.roboco.io — placement-score trends by
-  region/AZ for GPU (p5, g6e) and general-purpose T, C and R instance types, spot pricing,
+  region/AZ for GPU (p5, g6e) and T, M, C, R and I instance types, spot pricing,
   a day-of-week x hour-of-day heatmap, and a type-by-region comparison table. Filter by family,
   CPU architecture, region and score; the filter state is kept in the URL so a view can be
   shared as a link (refreshed hourly, 90-day history)
