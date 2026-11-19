@@ -66,8 +66,8 @@ test('수집기 TARGETS env는 카탈로그의 대상 id와 조회 타입 묶음
   }
 });
 
-test('카탈로그는 t·c·r 계열을 포함하고, GPU가 아닌 대상은 타입 3개 이상 묶음이다', () => {
-  for (const family of ['gpu', 't', 'c', 'r']) {
+test('카탈로그는 t·m·c·r·i 계열을 포함하고, GPU가 아닌 대상은 타입 3개 이상 묶음이다', () => {
+  for (const family of ['gpu', 't', 'm', 'c', 'r', 'i']) {
     expect(COLLECT_TARGETS.some(x => x.family === family)).toBe(true);
   }
   for (const x of COLLECT_TARGETS.filter(x => x.family !== 'gpu')) {
@@ -99,7 +99,7 @@ test('퍼블리셔 TARGETS env는 대시보드 필터용 메타(계열·아키�
   const targets = JSON.parse(lambdaEnv(makeCollectorTemplate(), 'python3.12').TARGETS);
   expect(targets.map((x: { id: string }) => x.id)).toEqual(COLLECT_TARGETS.map(x => x.id));
   expect(targets).toContainEqual({
-    id: 'c.xlarge', family: 'c', arch: 'x86', spec: '4 vCPU · 8 GiB', types: ['c7i.xlarge', 'c6i.xlarge', 'c6a.xlarge'],
+    id: 'c.xlarge', family: 'c', arch: 'x86', spec: '4 vCPU · 8 GiB', types: ['c7i.xlarge', 'c6i.xlarge', 'c5.xlarge'],
   });
   expect(targets[0]).toMatchObject({ id: 'p5.48xlarge', family: 'gpu', gpu: '8×H100' });
 });

@@ -1,6 +1,6 @@
 # 스팟 배치점수 오픈 데이터 피드
 
-roboco가 공개 운영하는 스팟 인텔리전스 피드입니다. GPU(p5·g6e)와 범용 T·C·R 타입을 다룹니다. 수집기(`-c collector=1` 스택)가
+roboco가 공개 운영하는 스팟 인텔리전스 피드입니다. GPU(p5·g6e)와 T·M·C·R·I 계열(버스터블·범용·컴퓨팅·메모리·스토리지 최적화) 타입을 다룹니다. 수집기(`-c collector=1` 스택)가
 1시간마다 [Spot Placement Score](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-placement-score.html)와
 스팟 가격 히스토리를 수집·집계해 CloudFront로 제공합니다.
 
@@ -18,16 +18,24 @@ roboco가 공개 운영하는 스팟 인텔리전스 피드입니다. GPU(p5·g6
 피드의 `types` 배열과 `scores`·`prices` 등의 키는 이 대상의 id다.
 
 GPU 대상은 인스턴스 타입 1개이며 id가 타입 이름과 같다(`p5.48xlarge`, `g6e.48xlarge` 등).
-T·C·R 대상은 같은 크기의 타입 3개를 묶은 것이고 id는 타입 이름이 아니다(`c.xlarge`,
+T·M·C·R·I 대상은 같은 크기의 타입 3개를 묶은 것이고 id는 타입 이름이 아니다(`c.xlarge`,
 `r.xlarge-arm` 등). 묶는 이유는 AWS 문서의 제약이다. P·G·Trn·Inf 계열이 아닌 타입을 1-2개만
 지정하면 배치점수가 항상 낮게 반환된다. 2026-11-18에 직접 조회했을 때 `t4g.medium` 단독은
 4개 리전에서 3점이었고, t4g 3개 묶음은 같은 4개 리전에서 9점이었다.
 
 따라서 묶음 대상의 값은 다음과 같이 읽는다. 점수는 "묶음에 속한 타입 중 어느 것이든 1대"를
 확보할 가능성이다. 가격은 묶음에 속한 타입들의 스팟가 중 최저가다. 묶음에 속한 타입은
-`typeMeta.<id>.members`에 있다. `t4g.mixed`만 크기가 다른 3개(medium·large·xlarge)를 묶는다.
-Graviton 버스터블은 t4g 한 세대뿐이라 같은 크기 3개를 만들 수 없기 때문이며, 이 대상의 가격은
-사실상 가장 작은 medium의 가격이다.
+`typeMeta.<id>.members`에 있다. `t4g.mixed`(medium·large·xlarge)와 `i8g.mixed`(large·xlarge·2xlarge)는
+크기가 다른 3개를 묶는다. Graviton 버스터블은 t4g 한 세대뿐이고, Graviton 스토리지 최적화 중 수집 리전
+5곳 모두에 있는 세대는 i8g뿐이라 같은 크기 3개를 만들 수 없기 때문이다. 두 대상의 가격은 사실상 묶음에서
+가장 작은 크기의 가격이다.
+
+묶음의 타입은 수집 리전 5곳 모두에서 제공되는 것만 쓴다. 어떤 리전에 없는 타입이 섞이면 그 리전에서는
+타입 2개로 조회한 것과 같아져 점수가 낮게 나온다. 2026-11-19까지 `c.xlarge`·`r.xlarge`에는 서울 리전에
+없는 c6a·r6a가 들어 있어 서울 점수가 3점으로 기록됐고, 같은 날 c5·r5로 교체했다. 그 이전의 서울 점수는
+실제 확보 가능성보다 낮게 기록된 값이다.
+
+HPC 계열(hpc6a·hpc7a·hpc7g 등)은 스팟 구매 옵션을 지원하지 않아 수집 대상이 아니다.
 
 수집 대상을 바꾼 뒤에는 대시보드 페이지를 먼저 배포하고(`main`에 push하면 GitHub Pages 워크플로가
 실행된다) 그다음에 수집기 스택을 `cdk deploy -c collector=1`로 배포한다. 새 대시보드는 `typeMeta`가
@@ -39,10 +47,10 @@ Graviton 버스터블은 t4g 한 세대뿐이라 같은 크기 3개를 만들 �
 ```jsonc
 {
   "generated": "2026-08-22 05:00 UTC",   // 생성 시각
-  "types": ["p5.48xlarge", "c.xlarge", ...], // 수집 대상 id (GPU는 타입 이름, T·C·R은 묶음 id)
+  "types": ["p5.48xlarge", "c.xlarge", ...], // 수집 대상 id (GPU는 타입 이름, 그 외는 묶음 id)
   "typeMeta": {                           // 대상별 메타 (구버전 피드에는 없음)
     "c.xlarge": { "family": "c", "arch": "x86", "spec": "4 vCPU · 8 GiB",
-                  "members": ["c7i.xlarge", "c6i.xlarge", "c6a.xlarge"] },
+                  "members": ["c7i.xlarge", "c6i.xlarge", "c5.xlarge"] },
     "p5.48xlarge": { "family": "gpu", "arch": "x86", "spec": "192 vCPU · 2048 GiB",
                      "gpu": "8×H100", "members": ["p5.48xlarge"] }
   },
@@ -68,7 +76,7 @@ Graviton 버스터블은 t4g 한 세대뿐이라 같은 크기 3개를 만들 �
   (소형 타입은 시간당 $0.01대다). 이 변경 전에 만들어진 피드는 소수 2자리였다.
 - `azScores`에는 조회 시점마다 점수 상위 10개 AZ만 기록된다. `GetSpotPlacementScores`가 AZ 단위 조회에서
   상위 10건만 반환하기 때문이다(2026-11-18 실측: `MaxResults`를 100으로 지정해도 10건, `NextToken` 없음).
-  AZ가 10개를 넘는 대상(T·C·R 묶음)은 점수가 낮은 AZ의 기록이 비거나 끊길 수 있다.
+  AZ가 10개를 넘는 대상(GPU가 아닌 묶음)은 점수가 낮은 AZ의 기록이 비거나 끊길 수 있다.
 - 피드는 CloudFront가 gzip·brotli로 압축 전송한다(`Accept-Encoding` 헤더를 보낸 경우).
 
 ## 이용 예

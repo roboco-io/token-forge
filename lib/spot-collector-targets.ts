@@ -3,17 +3,22 @@
  *
  * "대상(target)"은 GetSpotPlacementScores 1회 조회에 함께 넣는 인스턴스 타입 묶음이다.
  * - GPU(P·G 계열)는 타입 1개가 대상 1개다. AWS 문서가 이 계열은 최소 타입 수 권고에서 제외한다.
- * - 그 외(T·C·R)는 같은 크기의 타입 3개를 한 대상으로 묶는다. AWS 문서에 따르면 P·G·Trn·Inf가
+ * - 그 외(T·M·C·R·I)는 같은 크기의 타입 3개를 한 대상으로 묶는다. AWS 문서에 따르면 P·G·Trn·Inf가
  *   아닌 타입을 1-2개만 지정하면 점수가 항상 낮게 반환된다(2026-11-18 실측: t4g.medium 단독은
  *   4개 리전에서 3점, 같은 계열 3개 묶음은 9점). 그래서 이 대상의 점수는 "묶음 중 아무 타입이나
  *   1대"의 확보 가능성을 뜻하고, 가격은 묶음 내 최저가다.
+ *
+ * 묶음의 타입은 수집 리전 5곳 모두에서 제공되는 것만 고른다. 어떤 리전에 없는 타입이 섞이면 그 리전에서는
+ * 사실상 2개 묶음이 되어 점수가 낮게 나온다(2026-11-19 실측: c6a·r6a가 없는 서울에서 c.xlarge·r.xlarge가
+ * 3점). `aws ec2 describe-instance-type-offerings`로 리전별 제공 여부를 확인한 뒤 추가할 것.
+ * HPC 계열(hpc6a·hpc7a·hpc7g 등)은 스팟을 지원하지 않아(SupportedUsageClasses가 on-demand뿐) 대상이 될 수 없다.
  *
  * 대상을 추가하면 시간당 조회가 2회(리전 단위·AZ 단위) 늘어난다. AWS는 24시간 내 "새 조회 구성"의
  * 수를 제한할 수 있다고만 밝히고 수치는 공개하지 않으므로, 한 번에 많이 늘리지 말 것.
  * id는 DynamoDB scope 키의 접두어로 쓰이므로 '#'을 포함할 수 없고, 한 번 배포한 id를 바꾸면
  * 그 대상의 과거 수집 이력이 대시보드에서 빠진다.
  */
-export type TargetFamily = 'gpu' | 't' | 'c' | 'r';
+export type TargetFamily = 'gpu' | 't' | 'm' | 'c' | 'r' | 'i';
 
 export interface CollectTarget {
   /** 피드(data.json)의 키. GPU는 인스턴스 타입 이름 그대로다. */
@@ -37,10 +42,15 @@ export const COLLECT_TARGETS: CollectTarget[] = [
   { id: 't.large', family: 't', arch: 'x86', spec: '2 vCPU · 8 GiB', instanceTypes: ['t3.large', 't3a.large', 't2.large'] },
   // Graviton 버스터블은 t4g 한 세대뿐이라 같은 크기 3개를 만들 수 없어 크기를 섞는다 (가격은 사실상 medium 기준)
   { id: 't4g.mixed', family: 't', arch: 'arm', spec: '2-4 vCPU · 4-16 GiB', instanceTypes: ['t4g.medium', 't4g.large', 't4g.xlarge'] },
-  { id: 'c.xlarge', family: 'c', arch: 'x86', spec: '4 vCPU · 8 GiB', instanceTypes: ['c7i.xlarge', 'c6i.xlarge', 'c6a.xlarge'] },
+  { id: 'm.xlarge', family: 'm', arch: 'x86', spec: '4 vCPU · 16 GiB', instanceTypes: ['m7i.xlarge', 'm6i.xlarge', 'm5.xlarge'] },
+  { id: 'm.xlarge-arm', family: 'm', arch: 'arm', spec: '4 vCPU · 16 GiB', instanceTypes: ['m8g.xlarge', 'm7g.xlarge', 'm6g.xlarge'] },
+  { id: 'c.xlarge', family: 'c', arch: 'x86', spec: '4 vCPU · 8 GiB', instanceTypes: ['c7i.xlarge', 'c6i.xlarge', 'c5.xlarge'] },
   { id: 'c.xlarge-arm', family: 'c', arch: 'arm', spec: '4 vCPU · 8 GiB', instanceTypes: ['c8g.xlarge', 'c7g.xlarge', 'c6g.xlarge'] },
-  { id: 'r.xlarge', family: 'r', arch: 'x86', spec: '4 vCPU · 32 GiB', instanceTypes: ['r7i.xlarge', 'r6i.xlarge', 'r6a.xlarge'] },
+  { id: 'r.xlarge', family: 'r', arch: 'x86', spec: '4 vCPU · 32 GiB', instanceTypes: ['r7i.xlarge', 'r6i.xlarge', 'r5.xlarge'] },
   { id: 'r.xlarge-arm', family: 'r', arch: 'arm', spec: '4 vCPU · 32 GiB', instanceTypes: ['r8g.xlarge', 'r7g.xlarge', 'r6g.xlarge'] },
+  { id: 'i.xlarge', family: 'i', arch: 'x86', spec: '4 vCPU · 30.5-32 GiB · NVMe 937-950 GB', instanceTypes: ['i7i.xlarge', 'i4i.xlarge', 'i3.xlarge'] },
+  // 5개 리전 모두에 있는 Graviton 스토리지 최적화 세대는 i8g뿐이라 t4g처럼 크기를 섞는다 (가격은 사실상 large 기준)
+  { id: 'i8g.mixed', family: 'i', arch: 'arm', spec: '2-8 vCPU · 16-64 GiB · NVMe 468-1875 GB', instanceTypes: ['i8g.large', 'i8g.xlarge', 'i8g.2xlarge'] },
 ];
 
 /** 카탈로그의 구조적 오류를 synth 시점에 막는다. 문제가 있으면 무엇이 잘못됐는지 담아 throw한다. */
