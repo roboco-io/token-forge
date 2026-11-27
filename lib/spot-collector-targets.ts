@@ -33,11 +33,34 @@ export interface CollectTarget {
   instanceTypes: string[];
 }
 
+/** [크기, vCPU, 메모리 GiB, GPU 수] */
+type GpuSize = [string, number, number, number];
+const G5_G6_SIZES: GpuSize[] = [
+  ['xlarge', 4, 16, 1], ['2xlarge', 8, 32, 1], ['4xlarge', 16, 64, 1], ['8xlarge', 32, 128, 1],
+  ['12xlarge', 48, 192, 4], ['16xlarge', 64, 256, 1], ['24xlarge', 96, 384, 4], ['48xlarge', 192, 768, 8],
+];
+const G4DN_SIZES: GpuSize[] = [
+  ['xlarge', 4, 16, 1], ['2xlarge', 8, 32, 1], ['4xlarge', 16, 64, 1], ['8xlarge', 32, 128, 1],
+  ['12xlarge', 48, 192, 4], ['16xlarge', 64, 256, 1], ['metal', 96, 384, 8],
+];
+
+/** GPU 계열의 크기별 단일 타입 대상. GPU 대상은 id가 타입 이름 그대로다. */
+function gpuSizes(prefix: string, gpuName: string, sizes: GpuSize[]): CollectTarget[] {
+  return sizes.map(([size, vcpu, gib, n]) => {
+    const type = `${prefix}.${size}`;
+    return { id: type, family: 'gpu', arch: 'x86', gpu: `${n}×${gpuName}`, spec: `${vcpu} vCPU · ${gib} GiB`, instanceTypes: [type] };
+  });
+}
+
 export const COLLECT_TARGETS: CollectTarget[] = [
   { id: 'p5.48xlarge', family: 'gpu', arch: 'x86', gpu: '8×H100', spec: '192 vCPU · 2048 GiB', instanceTypes: ['p5.48xlarge'] },
   { id: 'g6e.48xlarge', family: 'gpu', arch: 'x86', gpu: '8×L40S', spec: '192 vCPU · 1536 GiB', instanceTypes: ['g6e.48xlarge'] },
   { id: 'g6e.24xlarge', family: 'gpu', arch: 'x86', gpu: '4×L40S', spec: '96 vCPU · 768 GiB', instanceTypes: ['g6e.24xlarge'] },
   { id: 'g6e.12xlarge', family: 'gpu', arch: 'x86', gpu: '4×L40S', spec: '48 vCPU · 384 GiB', instanceTypes: ['g6e.12xlarge'] },
+  // g6·g5·g4dn은 스팟을 지원하는 전 크기를 수집한다 (2026-11-27 확인: 23개 모두 수집 리전 5곳에서 스팟 지원)
+  ...gpuSizes('g6', 'L4', G5_G6_SIZES),
+  ...gpuSizes('g5', 'A10G', G5_G6_SIZES),
+  ...gpuSizes('g4dn', 'T4', G4DN_SIZES),
   { id: 't.medium', family: 't', arch: 'x86', spec: '2 vCPU · 4 GiB', instanceTypes: ['t3.medium', 't3a.medium', 't2.medium'] },
   { id: 't.large', family: 't', arch: 'x86', spec: '2 vCPU · 8 GiB', instanceTypes: ['t3.large', 't3a.large', 't2.large'] },
   // Graviton 버스터블은 t4g 한 세대뿐이라 같은 크기 3개를 만들 수 없어 크기를 섞는다 (가격은 사실상 medium 기준)
@@ -52,6 +75,16 @@ export const COLLECT_TARGETS: CollectTarget[] = [
   // 5개 리전 모두에 있는 Graviton 스토리지 최적화 세대는 i8g뿐이라 t4g처럼 크기를 섞는다 (가격은 사실상 large 기준)
   { id: 'i8g.mixed', family: 'i', arch: 'arm', spec: '2-8 vCPU · 16-64 GiB · NVMe 468-1875 GB', instanceTypes: ['i8g.large', 'i8g.xlarge', 'i8g.2xlarge'] },
 ];
+
+/**
+ * 퍼블리셔가 피드의 typeMeta를 만드는 데 쓰는 카탈로그. 대상이 38개를 넘으면서 환경 변수(합계 4KB 한도)에
+ * 담을 수 없게 되어, 스택이 이 값을 퍼블리셔 코드 패키지의 targets.json으로 넣는다.
+ */
+export function publisherCatalog(targets: CollectTarget[]) {
+  return targets.map(t => ({
+    id: t.id, family: t.family, arch: t.arch, spec: t.spec, ...(t.gpu ? { gpu: t.gpu } : {}), types: t.instanceTypes,
+  }));
+}
 
 /** 카탈로그의 구조적 오류를 synth 시점에 막는다. 문제가 있으면 무엇이 잘못됐는지 담아 throw한다. */
 export function validateTargets(targets: CollectTarget[]): void {

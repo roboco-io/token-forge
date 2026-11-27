@@ -1,6 +1,6 @@
 # 스팟 배치점수 오픈 데이터 피드
 
-roboco가 공개 운영하는 스팟 인텔리전스 피드입니다. GPU(p5·g6e)와 T·M·C·R·I 계열(버스터블·범용·컴퓨팅·메모리·스토리지 최적화) 타입을 다룹니다. 수집기(`-c collector=1` 스택)가
+roboco가 공개 운영하는 스팟 인텔리전스 피드입니다. GPU(p5·g6e·g6·g5·g4dn)와 T·M·C·R·I 계열(버스터블·범용·컴퓨팅·메모리·스토리지 최적화) 타입을 다룹니다. 수집기(`-c collector=1` 스택)가
 1시간마다 [Spot Placement Score](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-placement-score.html)와
 스팟 가격 히스토리를 수집·집계해 CloudFront로 제공합니다.
 

@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
@@ -10,7 +12,22 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
-import { COLLECT_TARGETS, validateTargets } from './spot-collector-targets';
+import { COLLECT_TARGETS, CollectTarget, publisherCatalog, validateTargets } from './spot-collector-targets';
+
+/**
+ * 퍼블리셔 코드(assets/dashboard-publisher)와 수집 대상 카탈로그(targets.json)를 담은 임시 디렉터리를 만든다.
+ * 카탈로그를 환경 변수로 넘기면 대상 38개에서 Lambda 환경 변수 한도(4KB)를 넘기 때문이다.
+ * 내용이 같으면 자산 해시도 같으므로, 카탈로그가 바뀔 때만 퍼블리셔 코드가 다시 배포된다.
+ */
+export function publisherAssetDir(targets: CollectTarget[]): string {
+  const src = path.join(__dirname, '..', 'assets', 'dashboard-publisher');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spot-publisher-'));
+  for (const f of fs.readdirSync(src)) {
+    if (f.endsWith('.py')) fs.copyFileSync(path.join(src, f), path.join(dir, f));
+  }
+  fs.writeFileSync(path.join(dir, 'targets.json'), JSON.stringify(publisherCatalog(targets)));
+  return dir;
+}
 
 const REGIONS = 'us-east-1,us-east-2,us-west-2,ap-northeast-1,ap-northeast-2';
 // 대시보드 페이지 공개 주소 (GitHub Pages — .github/workflows/dashboard-pages.yml)
@@ -40,7 +57,7 @@ export class SpotScoreCollectorStack extends cdk.Stack {
       handler: 'index.handler',
       // 대상당 2회(리전·AZ 단위) 순차 조회 — 대상이 늘어도 여유가 있도록 120초
       timeout: cdk.Duration.seconds(120),
-      // 기본 128MB에서 대상 11개 실행 시 121MB까지 사용(2026-11-18 실측) — 메모리 부족으로 수집이 끊기지 않게 여유를 둔다
+      // 기본 128MB에서 대상 11개 실행 시 121MB, 256MB에서 대상 15개 실행 시 150MB 사용(2026-11-19 실측) — 메모리 부족으로 수집이 끊기지 않게 여유를 둔다
       memorySize: 256,
       environment: {
         TABLE_NAME: table.tableName,
@@ -213,13 +230,10 @@ function handler(event) {
       // 대상 수에 비례해 스캔할 점수 항목과 가격 기록이 늘어난다 — Lambda 상한(15분)과 1 GiB로 여유를 둔다
       timeout: cdk.Duration.minutes(15),
       memorySize: 1024,
-      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'assets', 'dashboard-publisher')),
+      code: lambda.Code.fromAsset(publisherAssetDir(COLLECT_TARGETS)),
       environment: {
         TABLE_NAME: table.tableName,
         DASHBOARD_BUCKET: dashBucket.bucketName,
-        TARGETS: JSON.stringify(COLLECT_TARGETS.map(t => ({
-          id: t.id, family: t.family, arch: t.arch, spec: t.spec, gpu: t.gpu, types: t.instanceTypes,
-        }))),
         REGIONS,
       },
     });

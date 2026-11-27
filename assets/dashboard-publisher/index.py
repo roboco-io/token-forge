@@ -10,7 +10,15 @@ import boto3
 
 # 수집 대상(target): GPU는 타입 1개, 그 외는 같은 크기 3개 묶음 — lib/spot-collector-targets.ts가 기준.
 # 피드의 키는 대상 id이고, 가격은 대상에 속한 타입(types)들의 기록을 합쳐 최저가로 집계한다.
-TARGETS = json.loads(os.environ['TARGETS'])
+# 배포 시 스택이 코드 패키지에 targets.json을 넣는다(환경 변수 4KB 한도 때문). 로컬 실행은 TARGETS 환경 변수로 줄 수 있다.
+def _load_targets():
+    if os.environ.get('TARGETS'):
+        return json.loads(os.environ['TARGETS'])
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'targets.json'), encoding='utf-8') as f:
+        return json.load(f)
+
+
+TARGETS = _load_targets()
 TYPES = [t['id'] for t in TARGETS]
 OWNER = {m: t['id'] for t in TARGETS for m in t['types']}   # 인스턴스 타입 -> 대상 id
 MEMBER_TYPES = sorted(OWNER)

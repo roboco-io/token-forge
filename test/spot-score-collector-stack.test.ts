@@ -1,7 +1,9 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { SpotScoreCollectorStack } from '../lib/spot-score-collector-stack';
-import { COLLECT_TARGETS, CollectTarget, validateTargets } from '../lib/spot-collector-targets';
+import { SpotScoreCollectorStack, publisherAssetDir } from '../lib/spot-score-collector-stack';
+import { COLLECT_TARGETS, CollectTarget, publisherCatalog, validateTargets } from '../lib/spot-collector-targets';
 
 function makeCollectorTemplate(): Template {
   const app = new cdk.App();
@@ -95,8 +97,27 @@ test('수집기 Lambda는 묶음 타입으로 조회하고 NextToken이 오면 �
   expect(code).toContain('while (token)');
 });
 
-test('퍼블리셔 TARGETS env는 대시보드 필터용 메타(계열·아키텍처·사양)를 담는다', () => {
-  const targets = JSON.parse(lambdaEnv(makeCollectorTemplate(), 'python3.12').TARGETS);
+test('g6·g5·g4dn은 스팟 지원 전 크기를 GPU 단일 타입 대상으로 수집한다', () => {
+  const ids = COLLECT_TARGETS.map(x => x.id);
+  for (const fam of ['g6', 'g5']) {
+    for (const size of ['xlarge', '2xlarge', '4xlarge', '8xlarge', '12xlarge', '16xlarge', '24xlarge', '48xlarge']) {
+      expect(ids).toContain(`${fam}.${size}`);
+    }
+  }
+  for (const size of ['xlarge', '2xlarge', '4xlarge', '8xlarge', '12xlarge', '16xlarge', 'metal']) expect(ids).toContain(`g4dn.${size}`);
+  expect(COLLECT_TARGETS.find(x => x.id === 'g5.48xlarge')).toMatchObject({ family: 'gpu', gpu: '8×A10G', spec: '192 vCPU · 768 GiB', instanceTypes: ['g5.48xlarge'] });
+  expect(COLLECT_TARGETS.find(x => x.id === 'g4dn.12xlarge')).toMatchObject({ gpu: '4×T4', spec: '48 vCPU · 192 GiB' });
+});
+
+test('퍼블리셔는 카탈로그를 환경 변수가 아닌 코드 패키지의 targets.json으로 받는다', () => {
+  expect(lambdaEnv(makeCollectorTemplate(), 'python3.12').TARGETS).toBeUndefined();
+  const dir = publisherAssetDir(COLLECT_TARGETS);
+  expect(fs.existsSync(path.join(dir, 'index.py'))).toBe(true);
+  expect(JSON.parse(fs.readFileSync(path.join(dir, 'targets.json'), 'utf-8'))).toEqual(publisherCatalog(COLLECT_TARGETS));
+});
+
+test('퍼블리셔 카탈로그는 대시보드 필터용 메타(계열·아키텍처·사양)를 담는다', () => {
+  const targets = publisherCatalog(COLLECT_TARGETS);
   expect(targets.map((x: { id: string }) => x.id)).toEqual(COLLECT_TARGETS.map(x => x.id));
   expect(targets).toContainEqual({
     id: 'c.xlarge', family: 'c', arch: 'x86', spec: '4 vCPU · 8 GiB', types: ['c7i.xlarge', 'c6i.xlarge', 'c5.xlarge'],
